@@ -1,0 +1,51 @@
+# nanoKontrol2 MIDI Volume Controller Configuration
+# This file allows you to customize fader assignments and behavior
+
+[faders]
+# Fader labels (change these to match your apps/devices)
+# Order: Fader 1 through Fader 8 (define only what you need)
+# For app-specific control, use the exact or partial app name (case-insensitive)
+# Common app names: "chrome", "firefox", "spotify", "discord", "vlc"
+fader_7 = "Master Volume"
+fader_8 = "Google Chrome" 
+
+[audio]
+# PipeWire settings
+use_pipewire = true
+default_sink = "default"  # or specify sink ID
+
+# Volume control mode:
+# "pw-volume"     - Use pw-volume command (default, simple)
+# "pipewire-api"  - Use PipeWire Rust API (requires libpipewire-dev)
+volume_control_mode = "pipewire-api"
+
+# Volume curve (linear/exponential)
+volume_curve = "linear"
+
+# Debounce MIDI events (ms) to prevent excessive updates
+debounce_ms = 10
+
+[ui]
+# UI settings
+window_width = 1000
+window_height = 600
+theme = "default"  # default, dark, light
+
+# Show console by default
+show_console = false
+
+# Max console messages to keep
+max_console_lines = 1000
+
+[logging]
+# Log level: off, error, warn, info, debug, trace
+log_level = "info"
+
+# Show timestamps in console
+timestamps = true
+
+# Show fader movements in console
+log_fader_events = true
+
+# Show MIDI device info at startup
+log_device_info = true
