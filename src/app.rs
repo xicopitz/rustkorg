@@ -49,7 +49,7 @@ impl MidiVolumeApp {
 
         let fader_count = fader_labels.len();
         let mut app = MidiVolumeApp {
-            ui_state: UiState::new(fader_labels),
+            ui_state: UiState::new(fader_labels.clone()),
             midi_rx: rx,
             _midi_listener: listener,
             pipewire,
@@ -58,6 +58,22 @@ impl MidiVolumeApp {
             last_volume_values: vec![None; fader_count],
             last_volume_time: vec![None; fader_count],
         };
+
+        // Initialize fader values with actual current volumes
+        for (i, label) in fader_labels.iter().enumerate() {
+            let label_lower = label.to_lowercase();
+            let is_master = label_lower.contains("master");
+            
+            let current_volume = if is_master {
+                app.pipewire.get_volume_percent()
+            } else {
+                app.pipewire.get_volume_for_app(label)
+            };
+            
+            // Set UI fader to current volume (0-127 range)
+            app.ui_state.fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
+            app.last_volume_values[i] = Some(current_volume);
+        }
 
         app.ui_state
             .add_console_message("========================================".to_string());

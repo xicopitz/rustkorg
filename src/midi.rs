@@ -7,13 +7,16 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy)]
 pub enum MidiMessage {
     FaderChanged { fader_id: usize, value: u8 },
+    #[allow(dead_code)]
     KnobChanged { knob_id: usize, value: u8 },
+    #[allow(dead_code)]
     ButtonPressed { button_id: usize },
+    #[allow(dead_code)]
     ButtonReleased { button_id: usize },
 }
 
 pub struct MidiListener {
-    tx: mpsc::Sender<MidiMessage>,
+    _tx: mpsc::Sender<MidiMessage>,
 }
 
 impl MidiListener {
@@ -27,7 +30,7 @@ impl MidiListener {
             }
         });
 
-        Ok((MidiListener { tx }, rx))
+        Ok((MidiListener { _tx: tx }, rx))
     }
 
     fn listen_loop(tx: mpsc::Sender<MidiMessage>) -> Result<()> {

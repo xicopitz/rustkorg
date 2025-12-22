@@ -1,10 +1,10 @@
 use anyhow::Result;
-use log::{info, warn};
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct AppStream {
     pub node_id: u32,
     pub app_name: String,
@@ -12,15 +12,15 @@ pub struct AppStream {
 }
 
 pub struct PipeWireController {
-    app_streams: Arc<Mutex<HashMap<String, (u32, u8)>>>,  // app_name -> (sink_input_index, num_channels)
-    use_api: bool,
+    _app_streams: Arc<Mutex<HashMap<String, (u32, u8)>>>,  // app_name -> (sink_input_index, num_channels)
+    _use_api: bool,
 }
 
 impl PipeWireController {
     pub fn new(use_api: bool) -> Self {
         PipeWireController {
-            app_streams: Arc::new(Mutex::new(HashMap::new())),
-            use_api,
+            _app_streams: Arc::new(Mutex::new(HashMap::new())),
+            _use_api: use_api,
         }
     }
 
@@ -39,6 +39,79 @@ impl PipeWireController {
         self.set_volume_with_commands(volume_percent)
     }
 
+    pub fn get_volume_percent(&self) -> u8 {
+        // Try wpctl first
+        if let Ok(output) = Command::new("wpctl")
+            .args(&["get-volume", "@DEFAULT_AUDIO_SINK@"])
+            .output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                // Parse output like "Volume: 0.75" -> 75%
+                if let Some(vol_str) = text.split_whitespace().nth(1) {
+                    if let Ok(vol_float) = vol_str.parse::<f32>() {
+                        return (vol_float * 100.0) as u8;
+                    }
+                }
+            }
+        }
+        
+        // Try pactl
+        if let Ok(output) = Command::new("pactl")
+            .args(&["get-sink-volume", "@DEFAULT_SINK@"])
+            .output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                // Parse output like "Volume: front-left: 65536 /  100% / 0.00 dB"
+                for part in text.split('/') {
+                    if let Some(pct) = part.trim().strip_suffix('%') {
+                        if let Ok(vol) = pct.trim().parse::<u8>() {
+                            return vol;
+                        }
+                    }
+                }
+            }
+        }
+        
+        50 // Default fallback
+    }
+
+    pub fn get_volume_for_app(&self, app_name: &str) -> u8 {
+        if let Ok(output) = Command::new("pactl")
+            .args(&["list", "sink-inputs"])
+            .output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let app_name_lower = app_name.to_lowercase();
+                let mut _current_idx = None;
+                let mut in_matching_input = false;
+                
+                for line in text.lines() {
+                    if line.contains("Sink Input #") {
+                        in_matching_input = false;
+                        if let Some(idx_str) = line.split('#').nth(1) {
+                            _current_idx = idx_str.trim().parse::<u32>().ok();
+                        }
+                    } else if (line.contains("application.name") || line.contains("application.process.binary")) && 
+                              line.to_lowercase().contains(&app_name_lower) {
+                        in_matching_input = true;
+                    } else if in_matching_input && line.contains("Volume:") {
+                        // Parse volume line
+                        for part in line.split('/') {
+                            if let Some(pct) = part.trim().strip_suffix('%') {
+                                if let Ok(vol) = pct.trim().parse::<u8>() {
+                                    return vol;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        50 // Default fallback
+    }
+
+    #[allow(dead_code)]
     fn set_app_volume_with_api(&self, app_name: &str, volume_percent: u8) -> Result<()> {
         use libpulse_binding::context::Context;
         use libpulse_binding::mainloop::standard::Mainloop;
@@ -65,9 +138,9 @@ impl PipeWireController {
         
         let pa_volume = Volume((volume_percent as f32 / 100.0 * Volume::NORMAL.0 as f32) as u32);
         let app_name_lower = app_name.to_lowercase();
-        let app_name_owned = app_name.to_string();
+        let _app_name_owned = app_name.to_string();
         let app_name_lower_for_closure = app_name_lower.clone();
-        let app_streams = Arc::clone(&self.app_streams);
+        let app_streams = Arc::clone(&self._app_streams);
         let found = Arc::new(Mutex::new(false));
         let found_clone = Arc::clone(&found);
         let sink_count = Arc::new(Mutex::new(0u32));
@@ -89,7 +162,7 @@ impl PipeWireController {
                 // Get app name and binary for debugging
                 let app_name_prop = props.get_str("application.name").map(|n| n.to_string());
                 let app_binary = props.get_str("application.process.binary").map(|n| n.to_string());
-                let media_name = props.get_str("media.name").map(|n| n.to_string());
+                let _media_name = props.get_str("media.name").map(|n| n.to_string());
                 
                 // Store all app names for helpful error message
                 if let Some(ref name) = app_name_prop {
@@ -139,7 +212,7 @@ impl PipeWireController {
         
         // Set volume on the found sink input
         let volume_to_set = Arc::new(Mutex::new(None::<ChannelVolumes>));
-        let idx_to_use = if let Ok(streams) = self.app_streams.lock() {
+        let idx_to_use = if let Ok(streams) = self._app_streams.lock() {
             streams.get(&app_name_lower).map(|&(idx, _)| idx)
         } else {
             None
@@ -224,6 +297,7 @@ impl PipeWireController {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn set_volume_with_api(&self, volume_percent: u8) -> Result<()> {
         use libpulse_binding::context::Context;
         use libpulse_binding::mainloop::standard::Mainloop;
@@ -350,6 +424,7 @@ impl PipeWireController {
         matches!(output, Ok(o) if o.status.success())
     }
 
+    #[allow(dead_code)]
     pub fn get_apps(&self) -> Vec<AppStream> {
         vec![]  // Simplified for now
     }

@@ -2,6 +2,8 @@
 
 A Rust application that allows you to control PipeWire audio volume using faders on a Korg nanoKontrol2 MIDI controller. Features a real-time UI showing fader positions and console output.
 
+![nanoKontrol2 Volume Controller](image.png)
+
 ## Features
 
 - 🎚️ **Real-time Fader Visualization**: 8 faders with live value display (0-127 / 0-100%)

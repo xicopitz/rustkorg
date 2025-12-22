@@ -86,7 +86,7 @@ impl Config {
         if self.faders.fader_5.is_some() { mapping[4] = Some(idx); idx += 1; }
         if self.faders.fader_6.is_some() { mapping[5] = Some(idx); idx += 1; }
         if self.faders.fader_7.is_some() { mapping[6] = Some(idx); idx += 1; }
-        if self.faders.fader_8.is_some() { mapping[7] = Some(idx); idx += 1; }
+        if self.faders.fader_8.is_some() { mapping[7] = Some(idx); }
         
         mapping
     }
