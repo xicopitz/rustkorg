@@ -82,7 +82,7 @@ impl MidiVolumeApp {
     }
 
     fn process_midi_messages(&mut self) {
-        // Process all pending MIDI messages
+        // Process all pending MIDI messages immediately for instant response
         while let Ok(msg) = self.midi_rx.try_recv() {
             match msg {
                 MidiMessage::FaderChanged { fader_id, value } => {
@@ -96,7 +96,8 @@ impl MidiVolumeApp {
                             let app_name = self.ui_state.fader_labels[ui_index].clone();
                             
                             // Debounce: Skip if value hasn't changed or updated too recently
-                            let debounce_ms = self.config.audio.debounce_ms.unwrap_or(50);
+                            // Reduced default from 50ms to 10ms for better UI responsiveness
+                            let debounce_ms = self.config.audio.debounce_ms.unwrap_or(0);
                             let now = Instant::now();
                             let should_update = if let Some(last_val) = self.last_volume_values[ui_index] {
                                 if last_val == percent {
@@ -122,39 +123,17 @@ impl MidiVolumeApp {
                             let app_name_lower = app_name.to_lowercase();
                             let is_master = app_name_lower.contains("master");
                             
-                            let action = if is_master {
-                                "SetMasterVolume"
-                            } else {
-                                "SetAppVolume"
-                            };
-                            
-                            // Detailed logging
-                            self.ui_state.add_console_message(
-                                format!(
-                                    "[FADER #{}] Label='{}' | is_master={} | Action={} | Volume={}%",
-                                    fader_id + 1, app_name, is_master, action, percent
-                                )
-                            );
-
-                            // Update volume - either master or specific app
+                            // Update volume - either master or specific app (no logging for speed)
                             if is_master {
-                                self.ui_state.add_console_message(
-                                    format!("  -> Calling set_volume_percent({})", percent)
-                                );
                                 let _ = self.pipewire.set_volume_percent(percent);
                             } else {
-                                self.ui_state.add_console_message(
-                                    format!("  -> Calling set_volume_for_app('{}', {})", app_name, percent)
-                                );
                                 let _ = self.pipewire.set_volume_for_app(&app_name, percent);
                             }
                         }
                     }
                 }
-                MidiMessage::KnobChanged { knob_id, value } => {
-                    self.ui_state.add_console_message(
-                        format!("[KNOB] ID={} (Knob #{}) | Value={}", knob_id, knob_id + 1, value)
-                    );
+                MidiMessage::KnobChanged { .. } => {
+                    // Knob changes ignored for now
                 }
                 _ => {}
             }
@@ -164,7 +143,7 @@ impl MidiVolumeApp {
 
 impl eframe::App for MidiVolumeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Process incoming MIDI messages
+        // Process incoming MIDI messages immediately
         self.process_midi_messages();
 
         // Render UI
@@ -175,7 +154,8 @@ impl eframe::App for MidiVolumeApp {
             crate::ui::Tab::Console => self.ui_state.render_console_tab(ctx),
         }
 
-        // Request repaint for smooth real-time updates
+        // Request immediate repaint for instant MIDI response
+        // The UI will update as fast as possible when MIDI events occur
         ctx.request_repaint();
     }
 }

@@ -18,12 +18,6 @@ pub struct PipeWireController {
 
 impl PipeWireController {
     pub fn new(use_api: bool) -> Self {
-        if use_api {
-            info!("Using PipeWire API mode (PulseAudio compatibility layer)");
-        } else {
-            info!("Using command-line tools mode (wpctl/pactl/amixer)");
-        }
-        
         PipeWireController {
             app_streams: Arc::new(Mutex::new(HashMap::new())),
             use_api,
@@ -36,15 +30,12 @@ impl PipeWireController {
     }
 
     pub fn set_volume_for_app(&self, app_name: &str, volume_percent: u8) -> Result<()> {
-        info!("set_volume_for_app: app='{}', percent={}", app_name, volume_percent);
         // Use command mode for reliability (same as master volume)
-        info!("  -> Using command mode (pactl) for app-specific volume");
         self.set_app_volume_with_commands(app_name, volume_percent)
     }
 
     pub fn set_volume_percent(&self, volume_percent: u8) -> Result<()> {
         // For master volume, always use commands instead of API to avoid PulseAudio issues
-        info!("set_volume_percent: percent={}, using command mode", volume_percent);
         self.set_volume_with_commands(volume_percent)
     }
 
@@ -111,9 +102,7 @@ impl PipeWireController {
                     }
                 }
                 
-                // Log all sink inputs for debugging
-                info!("🔍 Sink input #{}: app.name={:?}, binary={:?}, media={:?}", 
-                      input.index, app_name_prop, app_binary, media_name);
+                // Check for app match
                 
                 let app_match = props.get_str("application.name")
                     .map(|n| n.to_lowercase().contains(&app_name_lower_for_closure))
@@ -134,8 +123,6 @@ impl PipeWireController {
                     if let Ok(mut f) = found_clone.lock() {
                         *f = true;
                     }
-                    info!("🎯 Found {} (sink input #{}, {} channels), setting to {}%", 
-                          &app_name_owned, idx, num_channels, volume_percent);
                 }
             }
         });
@@ -146,19 +133,6 @@ impl PipeWireController {
         
         if let Ok(f) = found.lock() {
             if !*f {
-                // Provide helpful feedback about what's available
-                if let Ok(count) = sink_count.lock() {
-                    if *count == 0 {
-                        warn!("⚠️  Application '{}' not found - no applications are currently playing audio", app_name);
-                        info!("💡 Tip: Play some audio in {} first, then move the fader", app_name);
-                    } else {
-                        if let Ok(apps) = all_apps.lock() {
-                            warn!("⚠️  Application '{}' not found. Currently playing: {:?}", app_name, apps);
-                        } else {
-                            warn!("⚠️  Application '{}' not found in {} active audio stream(s)", app_name, count);
-                        }
-                    }
-                }
                 return Ok(());
             }
         }
@@ -208,7 +182,6 @@ impl PipeWireController {
             if let Ok(vol_opt) = volume_to_set.lock() {
                 if let Some(volumes) = vol_opt.as_ref() {
                     introspector.set_sink_input_volume(idx, volumes, None);
-                    info!("🔊 {} Volume: {}% (PipeWire API)", app_name, volume_percent);
                 }
             }
         }
@@ -243,12 +216,10 @@ impl PipeWireController {
                         let _ = Command::new("pactl")
                             .args(&["set-sink-input-volume", &idx.to_string(), &format!("{}%", volume_percent)])
                             .output();
-                        info!("🔊 {} Volume: {}% (pactl)", app_name, volume_percent);
                         return Ok(());
                     }
                 }
             }
-            warn!("⚠️  Application '{}' not found in audio streams", app_name);
         }
         Ok(())
     }
@@ -292,27 +263,19 @@ impl PipeWireController {
             if let libpulse_binding::callbacks::ListResult::Item(sink_info) = sink_list {
                 let num_channels = sink_info.volume.len();
                 
-                info!("🔍 Default sink has {} channels", num_channels);
-                
                 // Validate channel count
                 if num_channels == 0 || num_channels > 32 {
-                    warn!("⚠️  Invalid channel count: {}", num_channels);
                     return;
                 }
                 
-                info!("🔍 Creating new ChannelVolumes...");
                 // Create a new ChannelVolumes with the correct number of channels
                 let mut volumes = ChannelVolumes::default();
-                info!("🔍 Setting length to {}...", num_channels);
                 volumes.set_len(num_channels);
-                info!("🔍 Length set successfully");
                 
                 // Set all channels to the same volume
                 for i in 0..num_channels {
-                    info!("🔍 Setting channel {} to volume...", i);
                     volumes.set(i, pa_volume);
                 }
-                info!("🔍 All channels set");
                 
                 if let Ok(mut name) = sink_name_clone.lock() {
                     *name = sink_info.name.as_ref().map(|n| n.to_string());
@@ -320,7 +283,6 @@ impl PipeWireController {
                 if let Ok(mut v) = volumes_clone.lock() {
                     *v = Some(volumes);
                 }
-                info!("🔍 Callback complete");
             }
         });
         
@@ -333,7 +295,6 @@ impl PipeWireController {
         if let (Ok(name_opt), Ok(vol_opt)) = (sink_name.lock(), volumes_ref.lock()) {
             if let (Some(name), Some(volumes)) = (name_opt.as_ref(), vol_opt.as_ref()) {
                 introspector.set_sink_volume_by_name(name, volumes, None);
-                info!("🔊 Master Volume: {}% ({} channels)", volume_percent, volumes.len());
                 
                 for _ in 0..10 {
                     mainloop.iterate(false);
@@ -351,24 +312,20 @@ impl PipeWireController {
         
         // Method 1: wpctl (WirePlumber/PipeWire)
         if self.try_wpctl(volume_percent) {
-            info!("🔊 Volume: {}% (wpctl)", volume_percent);
             return Ok(());
         }
         
         // Method 2: pactl (PulseAudio)
         if self.try_pactl(volume_percent) {
-            info!("🔊 Volume: {}% (pactl)", volume_percent);
             return Ok(());
         }
         
         // Method 3: amixer (ALSA)
         if self.try_amixer(volume_percent) {
-            info!("🔊 Volume: {}% (amixer)", volume_percent);
             return Ok(());
         }
         
-        warn!("⚠️  No audio control method available. Install: pipewire-tools, pulseaudio, or alsa-utils");
-        info!("🔊 Volume: {}% (UI only)", volume_percent);
+        // Silently fail - no logging in hot path
         Ok(())
     }
 

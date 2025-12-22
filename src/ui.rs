@@ -30,8 +30,8 @@ impl UiState {
         let now = chrono::Local::now();
         self.console_output.push((message, now));
         
-        // Keep only last 1000 messages to prevent memory bloat
-        if self.console_output.len() > 1000 {
+        // Keep only last 30 messages for display
+        if self.console_output.len() > 30 {
             self.console_output.remove(0);
         }
     }
@@ -96,7 +96,9 @@ impl UiState {
                 .stick_to_bottom(true);
 
             scroll_area.show(ui, |ui| {
-                for (message, timestamp) in &self.console_output {
+                // Display only the last 30 messages
+                let start_index = self.console_output.len().saturating_sub(30);
+                for (message, timestamp) in &self.console_output[start_index..] {
                     ui.label(format!("[{}] {}", timestamp.format("%H:%M:%S"), message));
                 }
             });
