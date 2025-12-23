@@ -2,10 +2,6 @@
 # This file allows you to customize MIDI CC to audio target mappings
 
 [midi_controls.system]
-# Map MIDI CC numbers to system/sink targets
-# Format: cc_NUMBER = "Target Name"
-# Use "Master Volume" (or anything with "master") to control system volume
-# Use sink names for sink control: "aux_sink", "easyeffects_sink", etc.
 cc_0 = "Master Volume"      # CC16 controls master volume
 cc_1 = "aux_sink"            # CC18 controls AuxSink (communications)
 
@@ -18,7 +14,7 @@ cc_16 = "Google Chrome"       # CC15 controls Chrome volume
 [audio]
 # PipeWire settings
 use_pipewire = true
-default_sink = "easyeffects_source"
+default_sink = "easyeffects_sink"
 
 # Volume control mode:
 # "pw-volume"     - Use pw-volume command (default, simple)
