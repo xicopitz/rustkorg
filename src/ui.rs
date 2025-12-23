@@ -2,25 +2,30 @@ use egui::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
-    Faders,
+    Control,
     Console,
 }
 
 pub struct UiState {
     pub selected_tab: Tab,
-    pub fader_values: Vec<u8>,  // Dynamic - only includes configured faders
-    pub fader_labels: Vec<String>,
+    pub system_fader_values: Vec<u8>,
+    pub system_fader_labels: Vec<(u8, String)>,  // (CC number, label)
+    pub app_fader_values: Vec<u8>,
+    pub app_fader_labels: Vec<(u8, String)>,  // (CC number, label)
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
     pub _show_details: bool,
 }
 
 impl UiState {
-    pub fn new(fader_labels: Vec<String>) -> Self {
-        let fader_count = fader_labels.len();
+    pub fn new(system_labels: Vec<(u8, String)>, app_labels: Vec<(u8, String)>) -> Self {
+        let system_count = system_labels.len();
+        let app_count = app_labels.len();
         Self {
-            selected_tab: Tab::Faders,
-            fader_values: vec![0; fader_count],  // Create vector with configured count
-            fader_labels,
+            selected_tab: Tab::Control,
+            system_fader_values: vec![0; system_count],
+            system_fader_labels: system_labels,
+            app_fader_values: vec![0; app_count],
+            app_fader_labels: app_labels,
             console_output: Vec::new(),
             _show_details: false,
         }
@@ -41,10 +46,10 @@ impl UiState {
             ui.horizontal(|ui| {
                 ui.style_mut().spacing.item_spacing = vec2(10.0, 0.0);
                 if ui
-                    .selectable_label(self.selected_tab == Tab::Faders, "♪ Faders")
+                    .selectable_label(self.selected_tab == Tab::Control, "♪ Control")
                     .clicked()
                 {
-                    self.selected_tab = Tab::Faders;
+                    self.selected_tab = Tab::Control;
                 }
                 if ui
                     .selectable_label(self.selected_tab == Tab::Console, "▣ Console")
@@ -58,115 +63,121 @@ impl UiState {
 
     pub fn render_faders_tab(&mut self, ctx: &Context) {
         CentralPanel::default().show(ctx, |ui| {
-            ui.heading(format!("♪ MIDI Fader Values ({} faders)", self.fader_values.len()));
+            let total_ccs = self.system_fader_values.len() + self.app_fader_values.len();
 
+            // System/Sink Controls Section
+            if !self.system_fader_values.is_empty() {
+                ui.add_space(10.0);
+                ui.heading(RichText::new("🔊 Sinks").color(Color32::from_rgb(100, 150, 220)));
+                ui.add_space(5.0);
+                
+                Grid::new("system_faders_grid")
+                    .num_columns(1)
+                    .spacing([60.0, 20.0])
+                    .show(ui, |ui| {
+                        for i in 0..self.system_fader_values.len() {
+                            Self::render_fader_static(
+                                ui,
+                                &mut self.system_fader_values[i],
+                                &self.system_fader_labels[i].1,
+                                self.system_fader_labels[i].0,
+                                Color32::from_rgb(100, 150, 220)
+                            );
+                            ui.end_row();
+                        }
+                    });
+                
+                ui.add_space(15.0);
+                ui.separator();
+            }
+
+            // Application Controls Section
+            if !self.app_fader_values.is_empty() {
+                ui.add_space(15.0);
+                ui.heading(RichText::new("🎵 Applications").color(Color32::from_rgb(220, 150, 80)));
+                ui.add_space(5.0);
+                
+                Grid::new("app_faders_grid")
+                    .num_columns(1)
+                    .spacing([60.0, 20.0])
+                    .show(ui, |ui| {
+                        for i in 0..self.app_fader_values.len() {
+                            Self::render_fader_static(
+                                ui,
+                                &mut self.app_fader_values[i],
+                                &self.app_fader_labels[i].1,
+                                self.app_fader_labels[i].0,
+                                Color32::from_rgb(220, 150, 80)
+                            );
+                            ui.end_row();
+                        }
+                    });
+            }
+
+            ui.add_space(15.0);
             ui.separator();
-
-            // Create grid for faders - dynamically sized based on configured faders
-            Grid::new("faders_grid")
-                .num_columns(2)
-                .spacing([30.0, 25.0])
-                .show(ui, |ui| {
-                    for i in 0..self.fader_values.len() {
-                        let label = &self.fader_labels[i];
-                        let label_lower = label.to_lowercase();
-                        let is_master = label_lower.contains("master");
-                        
-                        // Choose text label and color based on label
-                        let (text_label, color) = if is_master {
-                            ("[M]", Color32::from_rgb(120, 150, 200)) // Soft blue for master
-                        } else if label_lower.contains("chrome") {
-                            ("[C]", Color32::from_rgb(200, 100, 100)) // Soft red for Chrome
-                        } else if label_lower.contains("spotify") {
-                            ("[S]", Color32::from_rgb(100, 200, 120)) // Soft green for Spotify
-                        } else if label_lower.contains("discord") {
-                            ("[D]", Color32::from_rgb(140, 120, 200)) // Soft purple for Discord
-                        } else if label_lower.contains("slack") {
-                            ("[K]", Color32::from_rgb(200, 150, 100)) // Soft orange for Slack
-                        } else {
-                            ("[A]", Color32::from_rgb(150, 150, 150)) // Gray for others
-                        };
-                        
-                        ui.horizontal(|ui| {
-                            // Draw colored box icon
-                            let box_size = vec2(24.0, 24.0);
-                            let (rect, _) = ui.allocate_exact_size(box_size, Sense::hover());
-                            
-                            // Draw filled colored rectangle
-                            ui.painter().rect_filled(rect, 3.0, color);
-                            
-                            // Draw text label in center of box
-                            ui.painter().text(
-                                rect.center(),
-                                Align2::CENTER_CENTER,
-                                text_label,
-                                FontId::proportional(14.0),
-                                Color32::WHITE
-                            );
-                            
-                            ui.label(RichText::new(format!("{}", label))
-                                .color(color)
-                                .strong());
-                        });
-                        
-                        let value = self.fader_values[i];
-                        let percent = (value as f32 / 127.0 * 100.0) as u8;
-                        
-                        ui.vertical(|ui| {
-                            let slider_color = if is_master {
-                                Color32::from_rgb(80, 110, 160)
-                            } else {
-                                Color32::from_rgb(100, 100, 100)
-                            };
-                            
-                            ui.style_mut().visuals.selection.bg_fill = slider_color;
-                            ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 45);
-                            ui.style_mut().visuals.widgets.active.bg_fill = slider_color;
-                            
-                            ui.add(
-                                Slider::new(&mut self.fader_values[i], 0..=127)
-                                    .show_value(false)
-                                    .text(format!("{}%", percent))
-                            );
-                            
-                            // Add visual volume bar
-                            let bar_width = ui.available_width();
-                            let bar_height = 6.0;
-                            let filled_width = bar_width * (percent as f32 / 100.0);
-                            
-                            let (rect, _response) = ui.allocate_exact_size(
-                                vec2(bar_width, bar_height),
-                                Sense::hover()
-                            );
-                            
-                            // Background bar
-                            ui.painter().rect_filled(
-                                rect,
-                                2.0,
-                                Color32::from_rgb(30, 30, 35)
-                            );
-                            
-                            // Filled portion with gradient effect
-                            if filled_width > 0.0 {
-                                let filled_rect = Rect::from_min_size(
-                                    rect.min,
-                                    vec2(filled_width, bar_height)
-                                );
-                                ui.painter().rect_filled(
-                                    filled_rect,
-                                    2.0,
-                                    color
-                                );
-                            }
-                        });
-                        
-                        ui.end_row();
-                    }
-                });
-
-            ui.separator();
-            ui.label(RichText::new(format!("♪ Move faders on nanoKontrol2 to control {} volume zones", self.fader_values.len()))
+            ui.label(RichText::new(format!("♪ nanoKontrol2 CC's in use: {}", total_ccs))
                 .color(Color32::from_rgb(150, 150, 150)));
+        });
+    }
+
+    fn render_fader_static(
+        ui: &mut Ui,
+        fader_value: &mut u8,
+        label: &str,
+        cc_num: u8,
+        section_color: Color32,
+    ) {
+        // Label with CC number
+        ui.vertical(|ui| {
+            ui.label(RichText::new(label).strong().color(section_color));
+            ui.label(RichText::new(format!("CC{}", cc_num)).small().color(Color32::GRAY));
+        });
+        
+        let value = *fader_value;
+        let percent = (value as f32 / 127.0 * 100.0) as u8;
+        
+        ui.vertical(|ui| {
+            ui.style_mut().visuals.selection.bg_fill = section_color;
+            ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 45);
+            ui.style_mut().visuals.widgets.active.bg_fill = section_color;
+            
+            ui.add_sized(
+                vec2(800.0, 10.0),
+                Slider::new(fader_value, 0..=127)
+                    .show_value(false)
+                    .text(format!("{}%", percent))
+            );
+            
+            // Add visual volume bar
+            let bar_width = ui.available_width();
+            let bar_height = 6.0;
+            let filled_width = bar_width * (percent as f32 / 100.0);
+            
+            let (rect, _response) = ui.allocate_exact_size(
+                vec2(bar_width, bar_height),
+                Sense::hover()
+            );
+            
+            // Background bar
+            ui.painter().rect_filled(
+                rect,
+                2.0,
+                Color32::from_rgb(30, 30, 35)
+            );
+            
+            // Filled portion
+            if filled_width > 0.0 {
+                let filled_rect = Rect::from_min_size(
+                    rect.min,
+                    vec2(filled_width, bar_height)
+                );
+                ui.painter().rect_filled(
+                    filled_rect,
+                    2.0,
+                    section_color
+                );
+            }
         });
     }
 

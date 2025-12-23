@@ -84,11 +84,30 @@ impl Config {
         mapping
     }
     
-    pub fn get_control_labels(&self) -> Vec<(u8, String)> {
-        // Returns sorted list of (CC number, target name) for UI display
-        let mut controls: Vec<(u8, String)> = self.get_cc_mapping()
-            .into_iter()
-            .collect();
+    pub fn get_system_labels(&self) -> Vec<(u8, String)> {
+        // Returns sorted list of system/sink controls
+        let mut controls = Vec::new();
+        for (key, target) in &self.midi_controls.system {
+            if let Some(cc_str) = key.strip_prefix("cc_") {
+                if let Ok(cc_num) = cc_str.parse::<u8>() {
+                    controls.push((cc_num, target.trim().to_string()));
+                }
+            }
+        }
+        controls.sort_by_key(|(cc, _)| *cc);
+        controls
+    }
+    
+    pub fn get_app_labels(&self) -> Vec<(u8, String)> {
+        // Returns sorted list of application controls
+        let mut controls = Vec::new();
+        for (key, target) in &self.midi_controls.applications {
+            if let Some(cc_str) = key.strip_prefix("cc_") {
+                if let Ok(cc_num) = cc_str.parse::<u8>() {
+                    controls.push((cc_num, target.trim().to_string()));
+                }
+            }
+        }
         controls.sort_by_key(|(cc, _)| *cc);
         controls
     }

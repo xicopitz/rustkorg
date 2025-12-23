@@ -6,14 +6,14 @@
 # Format: cc_NUMBER = "Target Name"
 # Use "Master Volume" (or anything with "master") to control system volume
 # Use sink names for sink control: "aux_sink", "easyeffects_sink", etc.
-cc_16 = "Master Volume"      # CC16 controls master volume
-cc_18 = "aux_sink"            # CC18 controls AuxSink (communications)
+cc_0 = "Master Volume"      # CC16 controls master volume
+cc_1 = "aux_sink"            # CC18 controls AuxSink (communications)
 
 [midi_controls.applications]
 # Map MIDI CC numbers to application targets
 # Format: cc_NUMBER = "Application Name"
 # Use app names for app-specific control: "chrome", "firefox", "spotify", "discord", etc.
-cc_17 = "Google Chrome"       # CC15 controls Chrome volume 
+cc_16 = "Google Chrome"       # CC15 controls Chrome volume 
 
 [audio]
 # PipeWire settings

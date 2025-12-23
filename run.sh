@@ -7,11 +7,9 @@ echo "🎛️  nanoKontrol2 MIDI Volume Controller - Quick Start"
 echo "=================================================="
 echo ""
 
-# Check if binary exists
-if [ ! -f "./target/debug/korg-midi-volume" ]; then
-    echo "❌ Binary not found. Building project..."
-    cargo build
-fi
+# Always build before running
+echo "🔨 Building project..."
+cargo build
 
 # Check for pw-volume
 if ! command -v pw-volume &> /dev/null; then

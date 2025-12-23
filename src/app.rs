@@ -31,11 +31,17 @@ impl MidiVolumeApp {
             });
 
         let cc_mapping = config.get_cc_mapping();
-        let control_labels = config.get_control_labels();
+        let system_labels = config.get_system_labels();
+        let app_labels = config.get_app_labels();
         let cc_count = cc_mapping.len();
         
         info!("Loaded {} MIDI controls from configuration", cc_count);
-        for (cc, target) in &control_labels {
+        info!("System/Sink controls:");
+        for (cc, target) in &system_labels {
+            info!("  CC{}: {}", cc, target);
+        }
+        info!("Application controls:");
+        for (cc, target) in &app_labels {
             info!("  CC{}: {}", cc, target);
         }
 
@@ -49,13 +55,8 @@ impl MidiVolumeApp {
         let mut pipewire = PipeWireController::new(use_api);
         let _ = pipewire.discover_apps();
 
-        // Create UI labels from control labels
-        let ui_labels: Vec<String> = control_labels.iter()
-            .map(|(cc, target)| format!("CC{}: {}", cc, target))
-            .collect();
-        
         let mut app = MidiVolumeApp {
-            ui_state: UiState::new(ui_labels),
+            ui_state: UiState::new(system_labels.clone(), app_labels.clone()),
             midi_rx: rx,
             _midi_listener: listener,
             pipewire,
@@ -65,8 +66,8 @@ impl MidiVolumeApp {
             last_volume_time: HashMap::new(),
         };
 
-        // Initialize UI fader values
-        for (i, (cc, target)) in control_labels.iter().enumerate() {
+        // Initialize UI fader values for system controls
+        for (i, (cc, target)) in system_labels.iter().enumerate() {
             let target_lower = target.to_lowercase();
             let is_master = target_lower.contains("master");
             
@@ -77,7 +78,16 @@ impl MidiVolumeApp {
             };
             
             // Set UI fader to current volume (0-127 range)
-            app.ui_state.fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
+            app.ui_state.system_fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
+            app.last_volume_values.insert(*cc, current_volume);
+        }
+        
+        // Initialize UI fader values for application controls
+        for (i, (cc, target)) in app_labels.iter().enumerate() {
+            let current_volume = app.pipewire.get_volume_for_app(target);
+            
+            // Set UI fader to current volume (0-127 range)
+            app.ui_state.app_fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
             app.last_volume_values.insert(*cc, current_volume);
         }
 
@@ -106,6 +116,11 @@ impl MidiVolumeApp {
         while let Ok(msg) = self.midi_rx.try_recv() {
             match msg {
                 MidiMessage::ControlChange { cc, value } => {
+                    // Log MIDI CC message to console
+                    self.ui_state.add_console_message(
+                        format!("MIDI CC{} -> value: {}", cc, value)
+                    );
+                    
                     // Check if this CC is mapped to an audio target
                     if let Some(target) = self.cc_mapping.get(&cc) {
                         let percent = (value as f32 / 127.0 * 100.0) as u8;
@@ -145,10 +160,19 @@ impl MidiVolumeApp {
                         }
                         
                         // Update UI if this CC is displayed
-                        let control_labels = self.config.get_control_labels();
-                        if let Some(ui_index) = control_labels.iter().position(|(c, _)| *c == cc) {
-                            if ui_index < self.ui_state.fader_values.len() {
-                                self.ui_state.fader_values[ui_index] = value;
+                        let system_labels = self.config.get_system_labels();
+                        let app_labels = self.config.get_app_labels();
+                        
+                        // Check if it's a system control
+                        if let Some(ui_index) = system_labels.iter().position(|(c, _)| *c == cc) {
+                            if ui_index < self.ui_state.system_fader_values.len() {
+                                self.ui_state.system_fader_values[ui_index] = value;
+                            }
+                        }
+                        // Check if it's an application control
+                        else if let Some(ui_index) = app_labels.iter().position(|(c, _)| *c == cc) {
+                            if ui_index < self.ui_state.app_fader_values.len() {
+                                self.ui_state.app_fader_values[ui_index] = value;
                             }
                         }
                     }
@@ -168,7 +192,7 @@ impl eframe::App for MidiVolumeApp {
         self.ui_state.render_tabs(ctx);
 
         match self.ui_state.selected_tab {
-            crate::ui::Tab::Faders => self.ui_state.render_faders_tab(ctx),
+            crate::ui::Tab::Control => self.ui_state.render_faders_tab(ctx),
             crate::ui::Tab::Console => self.ui_state.render_console_tab(ctx),
         }
 
