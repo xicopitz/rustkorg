@@ -1,18 +1,24 @@
 # nanoKontrol2 MIDI Volume Controller Configuration
-# This file allows you to customize fader assignments and behavior
+# This file allows you to customize MIDI CC to audio target mappings
 
-[faders]
-# Fader labels (change these to match your apps/devices)
-# Order: Fader 1 through Fader 8 (define only what you need)
-# For app-specific control, use the exact or partial app name (case-insensitive)
-# Common app names: "chrome", "firefox", "spotify", "discord", "vlc"
-fader_7 = "Master Volume"
-fader_8 = "Google Chrome" 
+[midi_controls.system]
+# Map MIDI CC numbers to system/sink targets
+# Format: cc_NUMBER = "Target Name"
+# Use "Master Volume" (or anything with "master") to control system volume
+# Use sink names for sink control: "aux_sink", "easyeffects_sink", etc.
+cc_16 = "Master Volume"      # CC16 controls master volume
+cc_18 = "aux_sink"            # CC18 controls AuxSink (communications)
+
+[midi_controls.applications]
+# Map MIDI CC numbers to application targets
+# Format: cc_NUMBER = "Application Name"
+# Use app names for app-specific control: "chrome", "firefox", "spotify", "discord", etc.
+cc_17 = "Google Chrome"       # CC15 controls Chrome volume 
 
 [audio]
 # PipeWire settings
 use_pipewire = true
-default_sink = "default"  # or specify sink ID
+default_sink = "easyeffects_source"
 
 # Volume control mode:
 # "pw-volume"     - Use pw-volume command (default, simple)

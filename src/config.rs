@@ -1,25 +1,28 @@
 use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    pub faders: FadersConfig,
+    #[serde(default)]
+    pub midi_controls: MidiControlsConfig,
     pub audio: AudioConfig,
     pub ui: UiConfig,
     pub logging: LoggingConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FadersConfig {
-    pub fader_1: Option<String>,
-    pub fader_2: Option<String>,
-    pub fader_3: Option<String>,
-    pub fader_4: Option<String>,
-    pub fader_5: Option<String>,
-    pub fader_6: Option<String>,
-    pub fader_7: Option<String>,
-    pub fader_8: Option<String>,
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MidiControlsConfig {
+    // Map MIDI CC number to system/sink targets
+    // Example: cc_16 = "Master Volume", cc_18 = "aux_sink"
+    #[serde(default)]
+    pub system: HashMap<String, String>,
+    
+    // Map MIDI CC number to application targets
+    // Example: cc_15 = "Google Chrome", cc_20 = "Discord"
+    #[serde(default)]
+    pub applications: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,55 +59,51 @@ impl Config {
             .context("Failed to parse config.toml")
     }
 
-    pub fn get_fader_labels(&self) -> Vec<String> {
-        // Only return faders that are actually defined (non-None)
-        // Trim whitespace from labels
-        let mut labels = Vec::new();
+    pub fn get_cc_mapping(&self) -> HashMap<u8, String> {
+        // Parse CC controls from both system and applications
+        let mut mapping = HashMap::new();
         
-        if let Some(label) = &self.faders.fader_1 { labels.push(label.trim().to_string()); }
-        if let Some(label) = &self.faders.fader_2 { labels.push(label.trim().to_string()); }
-        if let Some(label) = &self.faders.fader_3 { labels.push(label.trim().to_string()); }
-        if let Some(label) = &self.faders.fader_4 { labels.push(label.trim().to_string()); }
-        if let Some(label) = &self.faders.fader_5 { labels.push(label.trim().to_string()); }
-        if let Some(label) = &self.faders.fader_6 { labels.push(label.trim().to_string()); }
-        if let Some(label) = &self.faders.fader_7 { labels.push(label.trim().to_string()); }
-        if let Some(label) = &self.faders.fader_8 { labels.push(label.trim().to_string()); }
+        // Add system/sink controls
+        for (key, target) in &self.midi_controls.system {
+            if let Some(cc_str) = key.strip_prefix("cc_") {
+                if let Ok(cc_num) = cc_str.parse::<u8>() {
+                    mapping.insert(cc_num, target.trim().to_string());
+                }
+            }
+        }
         
-        labels
-    }
-
-    pub fn get_fader_mapping(&self) -> Vec<Option<usize>> {
-        // Maps physical fader ID (0-7) to UI slider index
-        // Returns vec of 8 elements where Some(idx) means this fader is configured at position idx
-        let mut mapping = vec![None; 8];
-        let mut idx = 0;
-        
-        if self.faders.fader_1.is_some() { mapping[0] = Some(idx); idx += 1; }
-        if self.faders.fader_2.is_some() { mapping[1] = Some(idx); idx += 1; }
-        if self.faders.fader_3.is_some() { mapping[2] = Some(idx); idx += 1; }
-        if self.faders.fader_4.is_some() { mapping[3] = Some(idx); idx += 1; }
-        if self.faders.fader_5.is_some() { mapping[4] = Some(idx); idx += 1; }
-        if self.faders.fader_6.is_some() { mapping[5] = Some(idx); idx += 1; }
-        if self.faders.fader_7.is_some() { mapping[6] = Some(idx); idx += 1; }
-        if self.faders.fader_8.is_some() { mapping[7] = Some(idx); }
+        // Add application controls
+        for (key, target) in &self.midi_controls.applications {
+            if let Some(cc_str) = key.strip_prefix("cc_") {
+                if let Ok(cc_num) = cc_str.parse::<u8>() {
+                    mapping.insert(cc_num, target.trim().to_string());
+                }
+            }
+        }
         
         mapping
+    }
+    
+    pub fn get_control_labels(&self) -> Vec<(u8, String)> {
+        // Returns sorted list of (CC number, target name) for UI display
+        let mut controls: Vec<(u8, String)> = self.get_cc_mapping()
+            .into_iter()
+            .collect();
+        controls.sort_by_key(|(cc, _)| *cc);
+        controls
     }
 }
 
 impl Default for Config {
     fn default() -> Self {
+        let mut system = HashMap::new();
+        system.insert("cc_16".to_string(), "Master Volume".to_string());
+        
+        let mut applications = HashMap::new();
+        applications.insert("cc_15".to_string(), "Google Chrome".to_string());
+        
         Config {
-            faders: FadersConfig {
-                fader_1: Some("Master Volume".to_string()),
-                fader_2: Some("Chrome".to_string()),
-                fader_3: Some("Firefox".to_string()),
-                fader_4: Some("Spotify".to_string()),
-                fader_5: Some("Discord".to_string()),
-                fader_6: Some("VS Code".to_string()),
-                fader_7: Some("Games".to_string()),
-                fader_8: Some("Mic".to_string()),
-            },
+            midi_controls: MidiControlsConfig { system, applications },
             audio: AudioConfig {
                 use_pipewire: Some(true),
                 default_sink: Some("default".to_string()),

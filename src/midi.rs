@@ -6,9 +6,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MidiMessage {
-    FaderChanged { fader_id: usize, value: u8 },
-    #[allow(dead_code)]
-    KnobChanged { knob_id: usize, value: u8 },
+    ControlChange { cc: u8, value: u8 },
     #[allow(dead_code)]
     ButtonPressed { button_id: usize },
     #[allow(dead_code)]
@@ -90,22 +88,12 @@ impl MidiListener {
         let status = data[0];
         let controller = data[1];
         let value = data[2];
-
-        // nanoKontrol2 CC mappings
-        // Faders: CC 7, 10, 12-17
-        let fader_cc = [7, 10, 12, 13, 14, 15, 16, 17];
         
         if status == 0xB0 {
-            // Control Change on channel 0
-            if let Some(fader_id) = fader_cc.iter().position(|&cc| cc == controller) {
-                let msg = MidiMessage::FaderChanged { fader_id, value };
-                let _ = tx.send(msg);
-            } else if (49..=56).contains(&controller) {
-                // Knobs: CC 49-56
-                let knob_id = (controller - 49) as usize;
-                let msg = MidiMessage::KnobChanged { knob_id, value };
-                let _ = tx.send(msg);
-            }
+            // Control Change on channel 0 - send all CC messages
+            info!("MIDI CC{} -> value: {}", controller, value);
+            let msg = MidiMessage::ControlChange { cc: controller, value };
+            let _ = tx.send(msg);
         }
 
         Ok(())

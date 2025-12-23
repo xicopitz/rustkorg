@@ -3,6 +3,7 @@ use crate::midi::{MidiListener, MidiMessage};
 use crate::pipewire_control::PipeWireController;
 use crate::ui::UiState;
 use log::info;
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::Instant;
 
@@ -12,9 +13,9 @@ pub struct MidiVolumeApp {
     _midi_listener: MidiListener,
     pipewire: PipeWireController,
     config: Config,
-    fader_mapping: Vec<Option<usize>>,  // Maps physical fader ID to UI index
-    last_volume_values: Vec<Option<u8>>,  // Cache last sent volume for each fader
-    last_volume_time: Vec<Option<Instant>>,  // Track last volume change time
+    cc_mapping: HashMap<u8, String>,  // Maps CC number to audio target name
+    last_volume_values: HashMap<u8, u8>,  // Cache last sent volume for each CC
+    last_volume_time: HashMap<u8, Instant>,  // Track last volume change time
 }
 
 impl MidiVolumeApp {
@@ -29,12 +30,13 @@ impl MidiVolumeApp {
                 Config::default()
             });
 
-        let fader_labels = config.get_fader_labels();
-        let fader_mapping = config.get_fader_mapping();
+        let cc_mapping = config.get_cc_mapping();
+        let control_labels = config.get_control_labels();
+        let cc_count = cc_mapping.len();
         
-        info!("Loaded {} faders from configuration", fader_labels.len());
-        for (i, label) in fader_labels.iter().enumerate() {
-            info!("  Fader {}: {}", i + 1, label);
+        info!("Loaded {} MIDI controls from configuration", cc_count);
+        for (cc, target) in &control_labels {
+            info!("  CC{}: {}", cc, target);
         }
 
         // Start MIDI listener
@@ -47,32 +49,36 @@ impl MidiVolumeApp {
         let mut pipewire = PipeWireController::new(use_api);
         let _ = pipewire.discover_apps();
 
-        let fader_count = fader_labels.len();
+        // Create UI labels from control labels
+        let ui_labels: Vec<String> = control_labels.iter()
+            .map(|(cc, target)| format!("CC{}: {}", cc, target))
+            .collect();
+        
         let mut app = MidiVolumeApp {
-            ui_state: UiState::new(fader_labels.clone()),
+            ui_state: UiState::new(ui_labels),
             midi_rx: rx,
             _midi_listener: listener,
             pipewire,
             config,
-            fader_mapping,
-            last_volume_values: vec![None; fader_count],
-            last_volume_time: vec![None; fader_count],
+            cc_mapping,
+            last_volume_values: HashMap::new(),
+            last_volume_time: HashMap::new(),
         };
 
-        // Initialize fader values with actual current volumes
-        for (i, label) in fader_labels.iter().enumerate() {
-            let label_lower = label.to_lowercase();
-            let is_master = label_lower.contains("master");
+        // Initialize UI fader values
+        for (i, (cc, target)) in control_labels.iter().enumerate() {
+            let target_lower = target.to_lowercase();
+            let is_master = target_lower.contains("master");
             
             let current_volume = if is_master {
                 app.pipewire.get_volume_percent()
             } else {
-                app.pipewire.get_volume_for_app(label)
+                app.pipewire.get_volume_for_app(target)
             };
             
             // Set UI fader to current volume (0-127 range)
             app.ui_state.fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
-            app.last_volume_values[i] = Some(current_volume);
+            app.last_volume_values.insert(*cc, current_volume);
         }
 
         app.ui_state
@@ -84,13 +90,11 @@ impl MidiVolumeApp {
         app.ui_state
             .add_console_message("".to_string());
         app.ui_state
-            .add_console_message("📝 Current Status: All faders control MASTER VOLUME".to_string());
-        app.ui_state
-            .add_console_message("   (Per-app volume requires advanced PipeWire integration)".to_string());
+            .add_console_message(format!("📝 Loaded {} CC-to-target mappings", cc_count));
         app.ui_state
             .add_console_message("".to_string());
         app.ui_state
-            .add_console_message("Waiting for fader movements...".to_string());
+            .add_console_message("Waiting for MIDI CC messages...".to_string());
         app.ui_state
             .add_console_message("========================================".to_string());
 
@@ -101,55 +105,53 @@ impl MidiVolumeApp {
         // Process all pending MIDI messages immediately for instant response
         while let Ok(msg) = self.midi_rx.try_recv() {
             match msg {
-                MidiMessage::FaderChanged { fader_id, value } => {
-                    // Check if this physical fader is configured and get its UI index
-                    if fader_id < self.fader_mapping.len() {
-                        if let Some(ui_index) = self.fader_mapping[fader_id] {
-                            // Update the UI slider at the mapped position
-                            self.ui_state.fader_values[ui_index] = value;
-                            
-                            let percent = (value as f32 / 127.0 * 100.0) as u8;
-                            let app_name = self.ui_state.fader_labels[ui_index].clone();
-                            
-                            // Debounce: Skip if value hasn't changed or updated too recently
-                            // Reduced default from 50ms to 10ms for better UI responsiveness
-                            let debounce_ms = self.config.audio.debounce_ms.unwrap_or(0);
-                            let now = Instant::now();
-                            let should_update = if let Some(last_val) = self.last_volume_values[ui_index] {
-                                if last_val == percent {
-                                    false  // Same value, skip
-                                } else if let Some(last_time) = self.last_volume_time[ui_index] {
-                                    now.duration_since(last_time).as_millis() >= debounce_ms as u128
-                                } else {
-                                    true
-                                }
+                MidiMessage::ControlChange { cc, value } => {
+                    // Check if this CC is mapped to an audio target
+                    if let Some(target) = self.cc_mapping.get(&cc) {
+                        let percent = (value as f32 / 127.0 * 100.0) as u8;
+                        
+                        // Debounce: Skip if value hasn't changed or updated too recently
+                        let debounce_ms = self.config.audio.debounce_ms.unwrap_or(0);
+                        let now = Instant::now();
+                        let should_update = if let Some(last_val) = self.last_volume_values.get(&cc) {
+                            if *last_val == percent {
+                                false  // Same value, skip
+                            } else if let Some(last_time) = self.last_volume_time.get(&cc) {
+                                now.duration_since(*last_time).as_millis() >= debounce_ms as u128
                             } else {
-                                true  // First update
-                            };
-                            
-                            if !should_update {
-                                continue;  // Skip this update
+                                true
                             }
-                            
-                            // Cache the new value and time
-                            self.last_volume_values[ui_index] = Some(percent);
-                            self.last_volume_time[ui_index] = Some(now);
-                            
-                            // Determine if this is a specific app or master volume
-                            let app_name_lower = app_name.to_lowercase();
-                            let is_master = app_name_lower.contains("master");
-                            
-                            // Update volume - either master or specific app (no logging for speed)
-                            if is_master {
-                                let _ = self.pipewire.set_volume_percent(percent);
-                            } else {
-                                let _ = self.pipewire.set_volume_for_app(&app_name, percent);
+                        } else {
+                            true  // First update
+                        };
+                        
+                        if !should_update {
+                            continue;  // Skip this update
+                        }
+                        
+                        // Cache the new value and time
+                        self.last_volume_values.insert(cc, percent);
+                        self.last_volume_time.insert(cc, now);
+                        
+                        // Determine if this is a specific app or master volume
+                        let target_lower = target.to_lowercase();
+                        let is_master = target_lower.contains("master");
+                        
+                        // Update volume - either master or specific app/sink
+                        if is_master {
+                            let _ = self.pipewire.set_volume_percent(percent);
+                        } else {
+                            let _ = self.pipewire.set_volume_for_app(target, percent);
+                        }
+                        
+                        // Update UI if this CC is displayed
+                        let control_labels = self.config.get_control_labels();
+                        if let Some(ui_index) = control_labels.iter().position(|(c, _)| *c == cc) {
+                            if ui_index < self.ui_state.fader_values.len() {
+                                self.ui_state.fader_values[ui_index] = value;
                             }
                         }
                     }
-                }
-                MidiMessage::KnobChanged { .. } => {
-                    // Knob changes ignored for now
                 }
                 _ => {}
             }
