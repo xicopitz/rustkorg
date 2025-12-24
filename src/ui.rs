@@ -10,22 +10,17 @@ pub struct UiState {
     pub selected_tab: Tab,
     pub system_fader_values: Vec<u8>,
     pub system_fader_labels: Vec<(u8, String)>,  // (CC number, label)
-    pub app_fader_values: Vec<u8>,
-    pub app_fader_labels: Vec<(u8, String)>,  // (CC number, label)
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
     pub _show_details: bool,
 }
 
 impl UiState {
-    pub fn new(system_labels: Vec<(u8, String)>, app_labels: Vec<(u8, String)>) -> Self {
+    pub fn new(system_labels: Vec<(u8, String)>) -> Self {
         let system_count = system_labels.len();
-        let app_count = app_labels.len();
         Self {
             selected_tab: Tab::Control,
             system_fader_values: vec![0; system_count],
             system_fader_labels: system_labels,
-            app_fader_values: vec![0; app_count],
-            app_fader_labels: app_labels,
             console_output: Vec::new(),
             _show_details: false,
         }
@@ -63,7 +58,7 @@ impl UiState {
 
     pub fn render_faders_tab(&mut self, ctx: &Context) {
         CentralPanel::default().show(ctx, |ui| {
-            let total_ccs = self.system_fader_values.len() + self.app_fader_values.len();
+            let total_ccs = self.system_fader_values.len();
 
             // System/Sink Controls Section
             if !self.system_fader_values.is_empty() {
@@ -89,29 +84,6 @@ impl UiState {
                 
                 ui.add_space(15.0);
                 ui.separator();
-            }
-
-            // Application Controls Section
-            if !self.app_fader_values.is_empty() {
-                ui.add_space(15.0);
-                ui.heading(RichText::new("🎵 Applications").color(Color32::from_rgb(220, 150, 80)));
-                ui.add_space(5.0);
-                
-                Grid::new("app_faders_grid")
-                    .num_columns(1)
-                    .spacing([60.0, 20.0])
-                    .show(ui, |ui| {
-                        for i in 0..self.app_fader_values.len() {
-                            Self::render_fader_static(
-                                ui,
-                                &mut self.app_fader_values[i],
-                                &self.app_fader_labels[i].1,
-                                self.app_fader_labels[i].0,
-                                Color32::from_rgb(220, 150, 80)
-                            );
-                            ui.end_row();
-                        }
-                    });
             }
 
             ui.add_space(15.0);

@@ -29,11 +29,6 @@ impl PipeWireController {
         Ok(Vec::new())
     }
 
-    pub fn set_volume_for_app(&self, app_name: &str, volume_percent: u8) -> Result<()> {
-        // Use command mode for reliability (same as master volume)
-        self.set_app_volume_with_commands(app_name, volume_percent)
-    }
-
     pub fn set_volume_for_sink(&self, sink_name: &str, volume_percent: u8) -> Result<()> {
         // Use pactl to set sink volume directly
         Command::new("pactl")
@@ -74,42 +69,6 @@ impl PipeWireController {
                     if let Some(pct) = part.trim().strip_suffix('%') {
                         if let Ok(vol) = pct.trim().parse::<u8>() {
                             return vol;
-                        }
-                    }
-                }
-            }
-        }
-        
-        50 // Default fallback
-    }
-
-    pub fn get_volume_for_app(&self, app_name: &str) -> u8 {
-        if let Ok(output) = Command::new("pactl")
-            .args(&["list", "sink-inputs"])
-            .output() {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let app_name_lower = app_name.to_lowercase();
-                let mut _current_idx = None;
-                let mut in_matching_input = false;
-                
-                for line in text.lines() {
-                    if line.contains("Sink Input #") {
-                        in_matching_input = false;
-                        if let Some(idx_str) = line.split('#').nth(1) {
-                            _current_idx = idx_str.trim().parse::<u32>().ok();
-                        }
-                    } else if (line.contains("application.name") || line.contains("application.process.binary")) && 
-                              line.to_lowercase().contains(&app_name_lower) {
-                        in_matching_input = true;
-                    } else if in_matching_input && line.contains("Volume:") {
-                        // Parse volume line
-                        for part in line.split('/') {
-                            if let Some(pct) = part.trim().strip_suffix('%') {
-                                if let Ok(vol) = pct.trim().parse::<u8>() {
-                                    return vol;
-                                }
-                            }
                         }
                     }
                 }
@@ -292,36 +251,6 @@ impl PipeWireController {
         }
         
         context.disconnect();
-        Ok(())
-    }
-
-    fn set_app_volume_with_commands(&self, app_name: &str, volume_percent: u8) -> Result<()> {
-        // Use pactl to find and control app
-        let output = Command::new("pactl")
-            .args(&["list", "sink-inputs"])
-            .output();
-            
-        if let Ok(result) = output {
-            let text = String::from_utf8_lossy(&result.stdout);
-            let app_name_lower = app_name.to_lowercase();
-            let mut current_idx = None;
-            
-            for line in text.lines() {
-                if line.contains("Sink Input #") {
-                    if let Some(idx_str) = line.split('#').nth(1) {
-                        current_idx = idx_str.trim().parse::<u32>().ok();
-                    }
-                } else if (line.contains("application.name") || line.contains("application.process.binary")) && 
-                          line.to_lowercase().contains(&app_name_lower) {
-                    if let Some(idx) = current_idx {
-                        let _ = Command::new("pactl")
-                            .args(&["set-sink-input-volume", &idx.to_string(), &format!("{}%", volume_percent)])
-                            .output();
-                        return Ok(());
-                    }
-                }
-            }
-        }
         Ok(())
     }
 

@@ -15,7 +15,6 @@ use std::time::Instant;
     config: Config,
     cc_mapping: HashMap<u8, String>,  // Maps CC number to audio target name
     sink_ccs: Vec<u8>,  // CCs that control sinks
-    app_ccs: Vec<u8>,  // CCs that control applications
     last_volume_values: HashMap<u8, u8>,  // Cache last sent volume for each CC
     last_volume_time: HashMap<u8, Instant>,  // Track last volume change time
 }
@@ -34,20 +33,14 @@ impl MidiVolumeApp {
 
         let cc_mapping = config.get_cc_mapping();
         let sink_labels = config.get_sink_labels();
-        let app_labels = config.get_app_labels();
         let cc_count = cc_mapping.len();
         
-        // Build lists of CCs that control sinks vs applications
+        // Build list of CCs that control sinks
         let sink_ccs: Vec<u8> = sink_labels.iter().map(|(cc, _)| *cc).collect();
-        let app_ccs: Vec<u8> = app_labels.iter().map(|(cc, _)| *cc).collect();
         
         info!("Loaded {} MIDI controls from configuration", cc_count);
         info!("Sink controls:");
         for (cc, target) in &sink_labels {
-            info!("  CC{}: {}", cc, target);
-        }
-        info!("Application controls:");
-        for (cc, target) in &app_labels {
             info!("  CC{}: {}", cc, target);
         }
 
@@ -62,14 +55,13 @@ impl MidiVolumeApp {
         let _ = pipewire.discover_apps();
 
         let mut app = MidiVolumeApp {
-            ui_state: UiState::new(sink_labels.clone(), app_labels.clone()),
+            ui_state: UiState::new(sink_labels.clone()),
             midi_rx: rx,
             _midi_listener: listener,
             pipewire,
             config,
             cc_mapping,
             sink_ccs,
-            app_ccs,
             last_volume_values: HashMap::new(),
             last_volume_time: HashMap::new(),
         };
@@ -82,15 +74,7 @@ impl MidiVolumeApp {
             app.ui_state.system_fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
             app.last_volume_values.insert(*cc, current_volume);
         }
-        
-        // Initialize UI fader values for application controls
-        for (i, (cc, target)) in app_labels.iter().enumerate() {
-            let current_volume = app.pipewire.get_volume_for_app(target);
-            
-            // Set UI fader to current volume (0-127 range)
-            app.ui_state.app_fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
-            app.last_volume_values.insert(*cc, current_volume);
-        }
+
 
         app.ui_state
             .add_console_message("========================================".to_string());
@@ -149,31 +133,16 @@ impl MidiVolumeApp {
                         self.last_volume_values.insert(cc, percent);
                         self.last_volume_time.insert(cc, now);
                         
-                        // Determine if this CC controls a sink or application
-                        let is_sink = self.sink_ccs.contains(&cc);
-                        
-                        if is_sink {
-                            // Update sink volume
-                            let _ = self.pipewire.set_volume_for_sink(target, percent);
-                        } else {
-                            // Update application volume
-                            let _ = self.pipewire.set_volume_for_app(target, percent);
-                        }
+                        // Update sink volume
+                        let _ = self.pipewire.set_volume_for_sink(target, percent);
                         
                         // Update UI if this CC is displayed
                         let sink_labels = self.config.get_sink_labels();
-                        let app_labels = self.config.get_app_labels();
                         
                         // Check if it's a sink control
                         if let Some(ui_index) = sink_labels.iter().position(|(c, _)| *c == cc) {
                             if ui_index < self.ui_state.system_fader_values.len() {
                                 self.ui_state.system_fader_values[ui_index] = value;
-                            }
-                        }
-                        // Check if it's an application control
-                        else if let Some(ui_index) = app_labels.iter().position(|(c, _)| *c == cc) {
-                            if ui_index < self.ui_state.app_fader_values.len() {
-                                self.ui_state.app_fader_values[ui_index] = value;
                             }
                         }
                     }

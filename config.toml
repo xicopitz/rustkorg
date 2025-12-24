@@ -11,6 +11,9 @@ cc_1 = "comms_sink"                                   # CC1 controls communicati
 use_pipewire = true
 default_sink = "master_sink"
 
+# [midi_controls.applications]
+# cc_16 = "Google Chrome" 
+
 # Volume control mode:
 # "pw-volume"     - Use pw-volume command (default, simple)
 # "pipewire-api"  - Use PipeWire Rust API (requires libpipewire-dev)
