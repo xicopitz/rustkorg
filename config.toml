@@ -1,20 +1,15 @@
 # nanoKontrol2 MIDI Volume Controller Configuration
 # This file allows you to customize MIDI CC to audio target mappings
 
-[midi_controls.system]
-cc_0 = "Master Volume"      # CC16 controls master volume
-cc_1 = "aux_sink"            # CC18 controls AuxSink (communications)
-
-[midi_controls.applications]
-# Map MIDI CC numbers to application targets
-# Format: cc_NUMBER = "Application Name"
-# Use app names for app-specific control: "chrome", "firefox", "spotify", "discord", etc.
-cc_16 = "Google Chrome"       # CC15 controls Chrome volume 
+[midi_controls.sinks]
+# Map MIDI CC numbers to audio sinks
+cc_0 = "master_sink"  # CC0 controls default sink
+cc_1 = "comms_sink"                                   # CC1 controls communications sink 
 
 [audio]
 # PipeWire settings
 use_pipewire = true
-default_sink = "easyeffects_sink"
+default_sink = "master_sink"
 
 # Volume control mode:
 # "pw-volume"     - Use pw-volume command (default, simple)

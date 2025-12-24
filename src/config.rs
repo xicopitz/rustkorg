@@ -14,10 +14,10 @@ pub struct Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct MidiControlsConfig {
-    // Map MIDI CC number to system/sink targets
-    // Example: cc_16 = "Master Volume", cc_18 = "aux_sink"
+    // Map MIDI CC number to sink targets (sink names)
+    // Example: cc_0 = "alsa_output.pci-0000_25_00.0.analog-stereo", cc_1 = "comms_sink"
     #[serde(default)]
-    pub system: HashMap<String, String>,
+    pub sinks: HashMap<String, String>,
     
     // Map MIDI CC number to application targets
     // Example: cc_15 = "Google Chrome", cc_20 = "Discord"
@@ -60,11 +60,11 @@ impl Config {
     }
 
     pub fn get_cc_mapping(&self) -> HashMap<u8, String> {
-        // Parse CC controls from both system and applications
+        // Parse CC controls from both sinks and applications
         let mut mapping = HashMap::new();
         
-        // Add system/sink controls
-        for (key, target) in &self.midi_controls.system {
+        // Add sink controls
+        for (key, target) in &self.midi_controls.sinks {
             if let Some(cc_str) = key.strip_prefix("cc_") {
                 if let Ok(cc_num) = cc_str.parse::<u8>() {
                     mapping.insert(cc_num, target.trim().to_string());
@@ -84,10 +84,10 @@ impl Config {
         mapping
     }
     
-    pub fn get_system_labels(&self) -> Vec<(u8, String)> {
-        // Returns sorted list of system/sink controls
+    pub fn get_sink_labels(&self) -> Vec<(u8, String)> {
+        // Returns sorted list of sink controls
         let mut controls = Vec::new();
-        for (key, target) in &self.midi_controls.system {
+        for (key, target) in &self.midi_controls.sinks {
             if let Some(cc_str) = key.strip_prefix("cc_") {
                 if let Ok(cc_num) = cc_str.parse::<u8>() {
                     controls.push((cc_num, target.trim().to_string()));
@@ -96,6 +96,11 @@ impl Config {
         }
         controls.sort_by_key(|(cc, _)| *cc);
         controls
+    }
+    
+    pub fn get_system_labels(&self) -> Vec<(u8, String)> {
+        // Alias for backward compatibility - returns sink labels
+        self.get_sink_labels()
     }
     
     pub fn get_app_labels(&self) -> Vec<(u8, String)> {
@@ -115,18 +120,19 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let mut system = HashMap::new();
-        system.insert("cc_16".to_string(), "Master Volume".to_string());
+        let mut sinks = HashMap::new();
+        sinks.insert("cc_0".to_string(), "alsa_output.pci-0000_25_00.0.analog-stereo".to_string());
+        sinks.insert("cc_1".to_string(), "comms_sink".to_string());
         
         let mut applications = HashMap::new();
         applications.insert("cc_15".to_string(), "Google Chrome".to_string());
         
         Config {
-            midi_controls: MidiControlsConfig { system, applications },
+            midi_controls: MidiControlsConfig { sinks, applications },
             audio: AudioConfig {
                 use_pipewire: Some(true),
-                default_sink: Some("default".to_string()),
-                volume_control_mode: Some("pw-volume".to_string()),
+                default_sink: Some("alsa_output.pci-0000_25_00.0.analog-stereo".to_string()),
+                volume_control_mode: Some("pipewire-api".to_string()),
                 volume_curve: Some("linear".to_string()),
                 debounce_ms: Some(10),
             },

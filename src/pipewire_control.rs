@@ -34,6 +34,14 @@ impl PipeWireController {
         self.set_app_volume_with_commands(app_name, volume_percent)
     }
 
+    pub fn set_volume_for_sink(&self, sink_name: &str, volume_percent: u8) -> Result<()> {
+        // Use pactl to set sink volume directly
+        Command::new("pactl")
+            .args(&["set-sink-volume", sink_name, &format!("{}%", volume_percent)])
+            .output()?;
+        Ok(())
+    }
+
     pub fn set_volume_percent(&self, volume_percent: u8) -> Result<()> {
         // For master volume, always use commands instead of API to avoid PulseAudio issues
         self.set_volume_with_commands(volume_percent)
@@ -102,6 +110,26 @@ impl PipeWireController {
                                     return vol;
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+        
+        50 // Default fallback
+    }
+
+    pub fn get_volume_for_sink(&self, sink_name: &str) -> u8 {
+        if let Ok(output) = Command::new("pactl")
+            .args(&["get-sink-volume", sink_name])
+            .output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                // Parse output like "Volume: front-left: 65536 /  100% / 0.00 dB"
+                for part in text.split('/') {
+                    if let Some(pct) = part.trim().strip_suffix('%') {
+                        if let Ok(vol) = pct.trim().parse::<u8>() {
+                            return vol;
                         }
                     }
                 }
