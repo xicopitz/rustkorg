@@ -5,6 +5,7 @@ use crate::ui::UiState;
 use log::info;
 use std::collections::HashMap;
 use std::sync::mpsc;
+use std::thread;
 use std::time::Instant;
 
     pub struct MidiVolumeApp {
@@ -133,8 +134,12 @@ impl MidiVolumeApp {
                         self.last_volume_values.insert(cc, percent);
                         self.last_volume_time.insert(cc, now);
                         
-                        // Update sink volume
-                        let _ = self.pipewire.set_volume_for_sink(target, percent);
+                        // Update sink volume asynchronously to avoid blocking UI
+                        let target_clone = target.clone();
+                        thread::spawn(move || {
+                            let pipewire = PipeWireController::new(false);
+                            let _ = pipewire.set_volume_for_sink(&target_clone, percent);
+                        });
                         
                         // Update UI if this CC is displayed
                         let sink_labels = self.config.get_sink_labels();
