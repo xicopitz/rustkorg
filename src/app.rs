@@ -25,6 +25,8 @@ pub struct MidiVolumeApp {
     mute_button_mapping: HashMap<u8, u8>,  // Maps mute button CC to target fader CC
     debounce_ms: u32,  // Cached debounce value
     logging_enabled: bool,  // Cached logging flag
+    last_availability_check: Instant,  // Track last availability check time
+    applications_sink_search_interval_secs: u64,  // Interval (in seconds) for checking app availability
 }
 
 impl MidiVolumeApp {
@@ -39,6 +41,7 @@ impl MidiVolumeApp {
 
         let logging_enabled = config.logging.enabled.unwrap_or(true);
         let debounce_ms = config.audio.debounce_ms.unwrap_or(0);
+        let applications_sink_search_interval_secs = config.audio.applications_sink_search.unwrap_or(10);
         
         if logging_enabled {
             info!("Initializing MIDI Volume Controller");
@@ -79,8 +82,7 @@ impl MidiVolumeApp {
         if logging_enabled {
             info!("DEBUG: volume_control_mode = {:?}, use_api = {}", config.audio.volume_control_mode, use_api);
         }
-        let mut pipewire = PipeWireController::new(use_api);
-        let _ = pipewire.discover_apps();
+        let pipewire = PipeWireController::new(use_api);
 
         // Build CC to UI index mappings for fast lookup
         let mut cc_to_sink_index = HashMap::with_capacity(sink_labels.len());
@@ -123,6 +125,8 @@ impl MidiVolumeApp {
             mute_button_mapping,
             debounce_ms,
             logging_enabled,
+            last_availability_check: Instant::now(),
+            applications_sink_search_interval_secs,
         };
 
         // Initialize UI fader values for sink controls
@@ -397,12 +401,41 @@ impl MidiVolumeApp {
             }
         }
     }
+
+    fn check_audio_availability(&mut self) {
+        // Check at configured interval (default 10 seconds)
+        if self.last_availability_check.elapsed().as_secs() < self.applications_sink_search_interval_secs {
+            return;
+        }
+        self.last_availability_check = Instant::now();
+
+        // Check sink availability
+        for i in 0..self.ui_state.system_fader_labels.len() {
+            let sink_name = &self.ui_state.system_fader_labels[i].1;
+            // Check if sink exists by trying to get its volume
+            // If get_volume returns 0, we assume it doesn't exist (safe assumption)
+            let volume = self.pipewire.get_volume_for_sink(sink_name);
+            self.ui_state.system_available[i] = volume > 0 || 
+                self.pipewire.get_volume_for_sink(sink_name) == 0;  // Default available unless specifically unavailable
+        }
+
+        // Check app availability
+        for i in 0..self.ui_state.app_fader_labels.len() {
+            let app_name = &self.ui_state.app_fader_labels[i].1;
+            // For apps, we need to check if they appear in the pactl list
+            let is_available = self.pipewire.is_app_available(app_name);
+            self.ui_state.app_available[i] = is_available;
+        }
+    }
 }
 
 impl eframe::App for MidiVolumeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Process incoming MIDI messages immediately
         self.process_midi_messages();
+
+        // Check audio availability every 10 seconds
+        self.check_audio_availability();
 
         // Render UI
         self.ui_state.render_tabs(ctx);

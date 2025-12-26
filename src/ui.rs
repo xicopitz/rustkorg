@@ -12,12 +12,13 @@ pub struct UiState {
     pub system_fader_labels: Vec<(u8, String)>,  // (CC number, label)
     pub system_muted: Vec<bool>,  // Track mute state for each system fader
     pub system_muted_volume: Vec<u8>,  // Store previous volume when muted
+    pub system_available: Vec<bool>,  // Track if sink is currently available
     pub app_fader_values: Vec<u8>,
     pub app_fader_labels: Vec<(u8, String)>,  // (CC number, app name)
     pub app_muted: Vec<bool>,  // Track mute state for each app fader
     pub app_muted_volume: Vec<u8>,  // Store previous volume when muted
+    pub app_available: Vec<bool>,  // Track if app is currently available
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
-    pub _show_details: bool,
 }
 
 // Dark theme color palette
@@ -50,12 +51,13 @@ impl UiState {
             system_fader_labels: system_labels,
             system_muted: vec![false; system_count],
             system_muted_volume: vec![0; system_count],
+            system_available: vec![true; system_count],
             app_fader_values: vec![0; app_count],
             app_fader_labels: app_labels,
             app_muted: vec![false; app_count],
             app_muted_volume: vec![0; app_count],
+            app_available: vec![true; app_count],
             console_output: Vec::with_capacity(30),
-            _show_details: false,
         }
     }
 
@@ -160,6 +162,7 @@ impl UiState {
                             
                             for i in 0..self.system_fader_values.len() {
                                 let is_muted = self.system_muted[i];
+                                let is_available = self.system_available[i];
                                 let old_value = self.system_fader_values[i];
                                 Self::render_fader_with_mute(
                                     ui,
@@ -168,6 +171,7 @@ impl UiState {
                                     self.system_fader_labels[i].0,
                                     theme::ACCENT_BLUE,
                                     is_muted,
+                                    is_available,
                                 );
                                 if old_value != self.system_fader_values[i] {
                                     changed_faders.push((true, i, self.system_fader_values[i]));
@@ -187,6 +191,7 @@ impl UiState {
                             
                             for i in 0..self.app_fader_values.len() {
                                 let is_muted = self.app_muted[i];
+                                let is_available = self.app_available[i];
                                 let old_value = self.app_fader_values[i];
                                 Self::render_fader_with_mute(
                                     ui,
@@ -195,6 +200,7 @@ impl UiState {
                                     self.app_fader_labels[i].0,
                                     theme::ACCENT_ORANGE,
                                     is_muted,
+                                    is_available,
                                 );
                                 if old_value != self.app_fader_values[i] {
                                     changed_faders.push((false, i, self.app_fader_values[i]));
@@ -239,11 +245,12 @@ impl UiState {
         cc_num: u8,
         section_color: Color32,
         is_muted: bool,
+        is_available: bool,
     ) {
         // Container for each fader
         Frame::default()
-            .fill(theme::BG_SECONDARY)
-            .stroke(Stroke::new(1.0, theme::BORDER))
+            .fill(if is_available { theme::BG_SECONDARY } else { Color32::from_rgb(20, 20, 25) })
+            .stroke(Stroke::new(1.0, if is_available { theme::BORDER } else { Color32::from_rgb(40, 40, 45) }))
             .inner_margin(Margin::symmetric(20, 20))
             .corner_radius(CornerRadius::same(6))
             .show(ui, |ui| {
@@ -251,9 +258,15 @@ impl UiState {
                     // Header with label and mute icon
                     ui.horizontal(|ui| {
                         let mute_icon = if is_muted { "🔇" } else { "🔊" };
-                        let label_color = if is_muted { theme::TEXT_MUTED } else { section_color };
+                        let label_color = if !is_available {
+                            theme::TEXT_MUTED
+                        } else if is_muted {
+                            theme::TEXT_MUTED
+                        } else {
+                            section_color
+                        };
                         
-                        ui.label(RichText::new(mute_icon).size(14.0));
+                        ui.label(RichText::new(mute_icon).size(14.0).color(label_color));
                         ui.label(RichText::new(label)
                             .strong()
                             .size(13.0)
@@ -262,7 +275,7 @@ impl UiState {
                         ui.add_space(4.0);
                         ui.label(RichText::new(format!("[CC{}]", cc_num))
                             .size(10.0)
-                            .color(theme::TEXT_MUTED));
+                            .color(if is_available { theme::TEXT_MUTED } else { Color32::from_rgb(60, 60, 70) }));
                     });
                     
                     ui.add_space(2.0);

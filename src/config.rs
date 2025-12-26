@@ -35,6 +35,7 @@ pub struct AudioConfig {
     pub volume_control_mode: Option<String>,
     pub volume_curve: Option<String>,
     pub debounce_ms: Option<u32>,
+    pub applications_sink_search: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -149,6 +150,7 @@ impl Default for Config {
                 volume_control_mode: Some("pipewire-api".to_string()),
                 volume_curve: Some("linear".to_string()),
                 debounce_ms: Some(10),
+                applications_sink_search: Some(10),
             },
             ui: UiConfig {
                 window_width: Some(1000),
