@@ -22,6 +22,10 @@ pub struct MidiControlsConfig {
     // Example: cc_16 = "Google Chrome"
     #[serde(default)]
     pub applications: HashMap<String, String>,
+    // Map mute button CC to target fader CC (e.g., cc_64 = "cc_0" means CC64 mutes CC0)
+    // The key is the mute button CC, the value is the target fader CC number
+    #[serde(default)]
+    pub mute_buttons: HashMap<String, u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,7 +116,19 @@ impl Config {
         controls.sort_by_key(|(cc, _)| *cc);
         controls
     }
-    
+
+    pub fn get_mute_button_mappings(&self) -> HashMap<u8, u8> {
+        // Returns mapping of mute button CC to target fader CC
+        let mut mappings = HashMap::with_capacity(self.midi_controls.mute_buttons.len());
+        for (key, &target_cc) in &self.midi_controls.mute_buttons {
+            if let Some(cc_str) = key.strip_prefix("cc_") {
+                if let Ok(cc_num) = cc_str.parse::<u8>() {
+                    mappings.insert(cc_num, target_cc);
+                }
+            }
+        }
+        mappings
+    }
 
 }
 
@@ -123,9 +139,10 @@ impl Default for Config {
         sinks.insert("cc_1".to_string(), "comms_sink".to_string());
         
         let applications = HashMap::new();
+        let mute_buttons = HashMap::new();
         
         Config {
-            midi_controls: MidiControlsConfig { sinks, applications },
+            midi_controls: MidiControlsConfig { sinks, applications, mute_buttons },
             audio: AudioConfig {
                 use_pipewire: Some(true),
                 default_sink: Some("alsa_output.pci-0000_25_00.0.analog-stereo".to_string()),

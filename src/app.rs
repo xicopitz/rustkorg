@@ -21,6 +21,7 @@ pub struct MidiVolumeApp {
     last_volume_time: HashMap<u8, Instant>,  // Track last volume change time
     cc_to_sink_index: HashMap<u8, usize>,  // Maps CC to sink UI index
     cc_to_app_index: HashMap<u8, usize>,  // Maps CC to app UI index
+    mute_button_mapping: HashMap<u8, u8>,  // Maps mute button CC to target fader CC
     debounce_ms: u32,  // Cached debounce value
     logging_enabled: bool,  // Cached logging flag
 }
@@ -91,6 +92,9 @@ impl MidiVolumeApp {
             cc_to_app_index.insert(*cc, i);
         }
 
+        // Load mute button mappings
+        let mute_button_mapping = config.get_mute_button_mappings();
+
         let mut app = MidiVolumeApp {
             ui_state: UiState::new(sink_labels.clone(), app_labels.clone()),
             midi_rx: rx,
@@ -102,6 +106,7 @@ impl MidiVolumeApp {
             last_volume_time: HashMap::with_capacity(cc_count),
             cc_to_sink_index,
             cc_to_app_index,
+            mute_button_mapping,
             debounce_ms,
             logging_enabled,
         };
@@ -150,7 +155,16 @@ impl MidiVolumeApp {
                     self.ui_state.add_console_message(format!("MIDI CC{} -> value: {}", cc, value));
                 }
                 
-                // Check if this CC is mapped to an audio target
+                // Check if this CC is a mute button
+                if let Some(&target_cc) = self.mute_button_mapping.get(&cc) {
+                    // Mute button pressed (CC value > 0 means button pressed on nanoKontrol2)
+                    if value > 0 {
+                        self.handle_mute_button(target_cc);
+                    }
+                    continue;
+                }
+                
+                // Check if this CC is mapped to an audio target (volume fader)
                 if let Some(target) = self.cc_mapping.get(&cc) {
                     let percent = ((value as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
                     
@@ -207,6 +221,107 @@ impl MidiVolumeApp {
                         }
                     }
                 }
+            }
+        }
+    }
+    
+    fn handle_mute_button(&mut self, target_cc: u8) {
+        // Determine if target is a sink or app
+        let is_sink = self.cc_types.get(&target_cc).copied().unwrap_or(true);
+        
+        if is_sink {
+            // Handle sink mute
+            if let Some(&ui_index) = self.cc_to_sink_index.get(&target_cc) {
+                if ui_index < self.ui_state.system_muted.len() {
+                    self.toggle_sink_mute(ui_index, target_cc);
+                    if self.logging_enabled {
+                        let muted = self.ui_state.system_muted[ui_index];
+                        self.ui_state.add_console_message(
+                            format!("🔇 CC{} {} ", target_cc, if muted { "muted" } else { "unmuted" })
+                        );
+                    }
+                }
+            }
+        } else {
+            // Handle app mute
+            if let Some(&ui_index) = self.cc_to_app_index.get(&target_cc) {
+                if ui_index < self.ui_state.app_muted.len() {
+                    self.toggle_app_mute(ui_index, target_cc);
+                    if self.logging_enabled {
+                        let muted = self.ui_state.app_muted[ui_index];
+                        self.ui_state.add_console_message(
+                            format!("🔇 CC{} {}", target_cc, if muted { "muted" } else { "unmuted" })
+                        );
+                    }
+                }
+            }
+        }
+    }
+    
+    fn toggle_sink_mute(&mut self, ui_index: usize, cc: u8) {
+        let is_muted = self.ui_state.system_muted[ui_index];
+        
+        if is_muted {
+            // Unmute: restore previous volume
+            let previous_volume = self.ui_state.system_muted_volume[ui_index];
+            self.ui_state.system_fader_values[ui_index] = previous_volume;
+            self.ui_state.system_muted[ui_index] = false;
+            
+            if let Some(target) = self.cc_mapping.get(&cc) {
+                let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
+                let target_clone = target.clone();
+                thread::spawn(move || {
+                    let pipewire = PipeWireController::new(false);
+                    let _ = pipewire.set_volume_for_sink(&target_clone, percent);
+                });
+            }
+        } else {
+            // Mute: save current volume and set to 0
+            let current_volume = self.ui_state.system_fader_values[ui_index];
+            self.ui_state.system_muted_volume[ui_index] = current_volume;
+            self.ui_state.system_fader_values[ui_index] = 0;
+            self.ui_state.system_muted[ui_index] = true;
+            
+            if let Some(target) = self.cc_mapping.get(&cc) {
+                let target_clone = target.clone();
+                thread::spawn(move || {
+                    let pipewire = PipeWireController::new(false);
+                    let _ = pipewire.set_volume_for_sink(&target_clone, 0);
+                });
+            }
+        }
+    }
+    
+    fn toggle_app_mute(&mut self, ui_index: usize, cc: u8) {
+        let is_muted = self.ui_state.app_muted[ui_index];
+        
+        if is_muted {
+            // Unmute: restore previous volume
+            let previous_volume = self.ui_state.app_muted_volume[ui_index];
+            self.ui_state.app_fader_values[ui_index] = previous_volume;
+            self.ui_state.app_muted[ui_index] = false;
+            
+            if let Some(target) = self.cc_mapping.get(&cc) {
+                let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
+                let target_clone = target.clone();
+                thread::spawn(move || {
+                    let pipewire = PipeWireController::new(false);
+                    let _ = pipewire.set_volume_for_app(&target_clone, percent);
+                });
+            }
+        } else {
+            // Mute: save current volume and set to 0
+            let current_volume = self.ui_state.app_fader_values[ui_index];
+            self.ui_state.app_muted_volume[ui_index] = current_volume;
+            self.ui_state.app_fader_values[ui_index] = 0;
+            self.ui_state.app_muted[ui_index] = true;
+            
+            if let Some(target) = self.cc_mapping.get(&cc) {
+                let target_clone = target.clone();
+                thread::spawn(move || {
+                    let pipewire = PipeWireController::new(false);
+                    let _ = pipewire.set_volume_for_app(&target_clone, 0);
+                });
             }
         }
     }

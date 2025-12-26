@@ -2,13 +2,24 @@
 # This file allows you to customize MIDI CC to audio target mappings
 
 [midi_controls.sinks]
-# Map MIDI CC numbers to audio sinks
+# Map MIDI CC numbers to audio sinks (faders)
+# Use CC numbers 0-31 for sink volume controls
 cc_0 = "master_sink"  # CC0 controls default sink
 cc_1 = "comms_sink"   # CC1 controls communications sink 
 
 [midi_controls.applications]
-# Map MIDI CC numbers to applications
+# Map MIDI CC numbers to application names
+# Use CC numbers 32-63 or 16-31 for app volume controls
 cc_16 = "chrome"
+
+[midi_controls.mute_buttons]
+# Map mute button CC numbers to the CC number of the fader they should mute
+# Format: cc_BUTTON_CC = FADER_CC_NUMBER (where FADER_CC_NUMBER is an integer)
+# Example: cc_64 = 0 means CC64 button mutes the CC0 fader
+# On nanoKontrol2, buttons send value 127 when pressed, 0 when released
+# Only CC > 0 triggers mute toggle (to avoid releasing the button from unmuting)
+cc_48 = 0  # Button 1 mutes CC0 fader
+cc_49 = 1  # Button 2 mutes CC1 fader
 
 [audio]
 # PipeWire settings

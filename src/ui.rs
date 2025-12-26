@@ -1,4 +1,5 @@
 use egui::*;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -10,8 +11,12 @@ pub struct UiState {
     pub selected_tab: Tab,
     pub system_fader_values: Vec<u8>,
     pub system_fader_labels: Vec<(u8, String)>,  // (CC number, label)
+    pub system_muted: Vec<bool>,  // Track mute state for each system fader
+    pub system_muted_volume: Vec<u8>,  // Store previous volume when muted
     pub app_fader_values: Vec<u8>,
     pub app_fader_labels: Vec<(u8, String)>,  // (CC number, app name)
+    pub app_muted: Vec<bool>,  // Track mute state for each app fader
+    pub app_muted_volume: Vec<u8>,  // Store previous volume when muted
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
     pub _show_details: bool,
 }
@@ -24,8 +29,12 @@ impl UiState {
             selected_tab: Tab::Control,
             system_fader_values: vec![0; system_count],
             system_fader_labels: system_labels,
+            system_muted: vec![false; system_count],
+            system_muted_volume: vec![0; system_count],
             app_fader_values: vec![0; app_count],
             app_fader_labels: app_labels,
+            app_muted: vec![false; app_count],
+            app_muted_volume: vec![0; app_count],
             console_output: Vec::with_capacity(30),
             _show_details: false,
         }
@@ -76,12 +85,14 @@ impl UiState {
                     .spacing([60.0, 20.0])
                     .show(ui, |ui| {
                         for i in 0..self.system_fader_values.len() {
-                            Self::render_fader_static(
+                            let is_muted = self.system_muted[i];
+                            Self::render_fader_with_mute(
                                 ui,
                                 &mut self.system_fader_values[i],
                                 &self.system_fader_labels[i].1,
                                 self.system_fader_labels[i].0,
-                                Color32::from_rgb(100, 150, 220)
+                                Color32::from_rgb(100, 150, 220),
+                                is_muted,
                             );
                             ui.end_row();
                         }
@@ -102,12 +113,14 @@ impl UiState {
                     .spacing([60.0, 20.0])
                     .show(ui, |ui| {
                         for i in 0..self.app_fader_values.len() {
-                            Self::render_fader_static(
+                            let is_muted = self.app_muted[i];
+                            Self::render_fader_with_mute(
                                 ui,
                                 &mut self.app_fader_values[i],
                                 &self.app_fader_labels[i].1,
                                 self.app_fader_labels[i].0,
-                                Color32::from_rgb(200, 150, 100)
+                                Color32::from_rgb(200, 150, 100),
+                                is_muted,
                             );
                             ui.end_row();
                         }
@@ -123,7 +136,74 @@ impl UiState {
                 .color(Color32::from_rgb(150, 150, 150)));
         });
     }
+    
+    fn render_fader_with_mute(
+        ui: &mut Ui,
+        fader_value: &mut u8,
+        label: &str,
+        cc_num: u8,
+        section_color: Color32,
+        is_muted: bool,
+    ) {
+        // Label with CC number and mute indicator
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                let mute_icon = if is_muted { "🔇" } else { "🔊" };
+                ui.label(RichText::new(format!("{} {}", mute_icon, label))
+                    .strong()
+                    .color(if is_muted { Color32::GRAY } else { section_color }));
+                ui.label(RichText::new(format!("CC{}", cc_num)).small().color(Color32::GRAY));
+            });
+        });
+        
+        let value = *fader_value;
+        let percent = (value as f32 / 127.0 * 100.0) as u8;
+        
+        // Apply grayed-out style if muted
+        let fader_color = if is_muted {
+            Color32::from_rgb(100, 100, 100)
+        } else {
+            section_color
+        };
+        
+        ui.vertical(|ui| {
+            ui.style_mut().visuals.selection.bg_fill = fader_color;
+            ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 45);
+            ui.style_mut().visuals.widgets.active.bg_fill = fader_color;
+            
+            ui.add_sized(
+                vec2(800.0, 10.0),
+                Slider::new(fader_value, 0..=127)
+                    .show_value(false)
+                    .text(format!("{}%{}", percent, if is_muted { " (MUTED)" } else { "" }))
+            );
+            
+            // Add visual volume bar
+            let bar_width = ui.available_width();
+            let bar_height = 6.0;
+            let filled_width = bar_width * (percent as f32 / 100.0);
+            
+            let (rect, _response) = ui.allocate_exact_size(
+                vec2(bar_width, bar_height),
+                Sense::hover()
+            );
+            
+            // Background bar
+            ui.painter().rect_filled(
+                rect,
+                2.0,
+                Color32::from_rgb(30, 30, 35)
+            );
+            
+            // Filled bar (with mute color if muted)
+            if filled_width > 0.0 {
+                let filled_rect = Rect::from_min_size(rect.min, vec2(filled_width, bar_height));
+                ui.painter().rect_filled(filled_rect, 2.0, fader_color);
+            }
+        });
+    }
 
+    #[deprecated]
     fn render_fader_static(
         ui: &mut Ui,
         fader_value: &mut u8,
