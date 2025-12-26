@@ -35,8 +35,8 @@ volume_control_mode = "pipewire-api"
 volume_curve = "linear"
 
 # Debounce MIDI events (ms) to prevent excessive updates and phantom inputs
-# Phantom inputs detected on nanoKontrol2, increased to 100ms for stability
-debounce_ms = 100
+# Set to 0 for maximum responsiveness (though MIDI sends events relatively infrequently)
+debounce_ms = 0
 
 [ui]
 # UI settings

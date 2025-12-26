@@ -351,6 +351,52 @@ impl MidiVolumeApp {
             }
         }
     }
+    
+    fn process_ui_slider_changes(&mut self, changed_faders: Vec<(bool, usize, u8)>) {
+        for (is_sink, ui_index, new_value) in changed_faders {
+            if is_sink {
+                // Handle sink volume change from UI
+                if ui_index < self.ui_state.system_fader_labels.len() {
+                    let cc = self.ui_state.system_fader_labels[ui_index].0;
+                    let percent = ((new_value as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
+                    
+                    if let Some(target) = self.cc_mapping.get(&cc) {
+                        let target_clone = target.clone();
+                        thread::spawn(move || {
+                            let pipewire = PipeWireController::new(false);
+                            let _ = pipewire.set_volume_for_sink(&target_clone, percent);
+                        });
+                    }
+                    
+                    if self.logging_enabled {
+                        self.ui_state.add_console_message(
+                            format!("UI Slider CC{}: {}", cc, percent)
+                        );
+                    }
+                }
+            } else {
+                // Handle app volume change from UI
+                if ui_index < self.ui_state.app_fader_labels.len() {
+                    let cc = self.ui_state.app_fader_labels[ui_index].0;
+                    let percent = ((new_value as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
+                    
+                    if let Some(target) = self.cc_mapping.get(&cc) {
+                        let target_clone = target.clone();
+                        thread::spawn(move || {
+                            let pipewire = PipeWireController::new(false);
+                            let _ = pipewire.set_volume_for_app(&target_clone, percent);
+                        });
+                    }
+                    
+                    if self.logging_enabled {
+                        self.ui_state.add_console_message(
+                            format!("UI Slider CC{}: {}", cc, percent)
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for MidiVolumeApp {
@@ -361,13 +407,22 @@ impl eframe::App for MidiVolumeApp {
         // Render UI
         self.ui_state.render_tabs(ctx);
 
-        match self.ui_state.selected_tab {
+        let changed_faders = match self.ui_state.selected_tab {
             crate::ui::Tab::Control => self.ui_state.render_faders_tab(ctx),
-            crate::ui::Tab::Console => self.ui_state.render_console_tab(ctx),
-        }
+            crate::ui::Tab::Console => {
+                self.ui_state.render_console_tab(ctx);
+                Vec::new()
+            }
+        };
+        
+        // Handle UI slider changes
+        self.process_ui_slider_changes(changed_faders);
 
-        // Request immediate repaint for instant MIDI response
-        // The UI will update as fast as possible when MIDI events occur
+        // Request continuous repainting for instant MIDI response
+        // This ensures the UI updates immediately when MIDI events occur
         ctx.request_repaint();
+        
+        // Also request a repaint for the next frame to maintain responsiveness
+        ctx.request_repaint_after(std::time::Duration::from_millis(16)); // ~60 FPS
     }
 }

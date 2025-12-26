@@ -20,6 +20,26 @@ pub struct UiState {
     pub _show_details: bool,
 }
 
+// Dark theme color palette
+mod theme {
+    use egui::Color32;
+    
+    pub const BG_PRIMARY: Color32 = Color32::from_rgb(18, 18, 22);
+    pub const BG_SECONDARY: Color32 = Color32::from_rgb(28, 28, 35);
+    pub const BG_TERTIARY: Color32 = Color32::from_rgb(38, 38, 45);
+    
+    pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(230, 230, 235);
+    pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(150, 150, 160);
+    pub const TEXT_MUTED: Color32 = Color32::from_rgb(100, 100, 110);
+    
+    pub const ACCENT_BLUE: Color32 = Color32::from_rgb(100, 160, 220);
+    pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(220, 140, 80);
+    pub const ACCENT_RED: Color32 = Color32::from_rgb(220, 100, 100);
+    pub const ACCENT_GREEN: Color32 = Color32::from_rgb(100, 200, 150);
+    
+    pub const BORDER: Color32 = Color32::from_rgb(50, 50, 60);
+}
+
 impl UiState {
     pub fn new(system_labels: Vec<(u8, String)>, app_labels: Vec<(u8, String)>) -> Self {
         let system_count = system_labels.len();
@@ -43,96 +63,172 @@ impl UiState {
         let now = chrono::Local::now();
         self.console_output.push((message, now));
         
-        // Keep only last 30 messages for display - use drain to be more efficient
+        // Keep only last 30 messages for display
         if self.console_output.len() > 30 {
             self.console_output.drain(0..self.console_output.len() - 30);
         }
     }
 
-    pub fn render_tabs(&mut self, ctx: &Context) {
-        TopBottomPanel::top("tab_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.style_mut().spacing.item_spacing = vec2(10.0, 0.0);
-                if ui
-                    .selectable_label(self.selected_tab == Tab::Control, "♪ Control")
-                    .clicked()
-                {
-                    self.selected_tab = Tab::Control;
-                }
-                if ui
-                    .selectable_label(self.selected_tab == Tab::Console, "▣ Console")
-                    .clicked()
-                {
-                    self.selected_tab = Tab::Console;
-                }
-            });
-        });
+    pub fn apply_dark_theme(ctx: &Context) {
+        let mut visuals = Visuals::dark();
+        
+        // Background colors
+        visuals.panel_fill = theme::BG_PRIMARY;
+        visuals.extreme_bg_color = theme::BG_PRIMARY;
+        visuals.faint_bg_color = theme::BG_SECONDARY;
+        visuals.window_fill = theme::BG_SECONDARY;
+        
+        // Text colors
+        visuals.override_text_color = Some(theme::TEXT_PRIMARY);
+        visuals.weak_text_color = Some(theme::TEXT_SECONDARY);
+        
+        // Widget colors
+        visuals.widgets.inactive.bg_fill = theme::BG_TERTIARY;
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, theme::TEXT_SECONDARY);
+        
+        visuals.widgets.hovered.bg_fill = theme::ACCENT_BLUE.gamma_multiply(0.5);
+        visuals.widgets.hovered.fg_stroke = Stroke::new(1.5, theme::ACCENT_BLUE);
+        
+        visuals.widgets.active.bg_fill = theme::ACCENT_BLUE;
+        visuals.widgets.active.fg_stroke = Stroke::new(1.5, Color32::WHITE);
+        
+        // Selection
+        visuals.selection.bg_fill = theme::ACCENT_BLUE;
+        visuals.selection.stroke = Stroke::new(1.0, theme::ACCENT_BLUE);
+        
+        // Borders
+        visuals.window_stroke = Stroke::new(1.0, theme::BORDER);
+        
+        ctx.set_visuals(visuals);
     }
 
-    pub fn render_faders_tab(&mut self, ctx: &Context) {
-        CentralPanel::default().show(ctx, |ui| {
-            let total_ccs = self.system_fader_values.len() + self.app_fader_values.len();
+    pub fn render_tabs(&mut self, ctx: &Context) {
+        Self::apply_dark_theme(ctx);
+        
+        TopBottomPanel::top("tab_panel")
+            .frame(Frame::default()
+                .fill(theme::BG_SECONDARY)
+                .stroke(Stroke::new(1.0, theme::BORDER)))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.style_mut().spacing.item_spacing = vec2(12.0, 0.0);
+                    ui.add_space(8.0);
+                    
+                    // Control tab
+                    if ui
+                        .selectable_label(self.selected_tab == Tab::Control, 
+                            RichText::new("🎚 Control").size(14.0))
+                        .clicked()
+                    {
+                        self.selected_tab = Tab::Control;
+                    }
+                    
+                    // Console tab
+                    if ui
+                        .selectable_label(self.selected_tab == Tab::Console, 
+                            RichText::new("📋 Console").size(14.0))
+                        .clicked()
+                    {
+                        self.selected_tab = Tab::Console;
+                    }
+                    
+                    ui.add_space(8.0);
+                });
+            });
+    }
 
-            // System/Sink Controls Section
-            if !self.system_fader_values.is_empty() {
-                ui.add_space(10.0);
-                ui.heading(RichText::new("🔊 Sinks").color(Color32::from_rgb(100, 150, 220)));
-                ui.add_space(5.0);
-                
-                Grid::new("system_faders_grid")
-                    .num_columns(1)
-                    .spacing([60.0, 20.0])
+    pub fn render_faders_tab(&mut self, ctx: &Context) -> Vec<(bool, usize, u8)> {
+        let mut changed_faders = Vec::new();
+        
+        CentralPanel::default()
+            .frame(Frame::default().fill(theme::BG_PRIMARY))
+            .show(ctx, |ui| {
+                let total_ccs = self.system_fader_values.len() + self.app_fader_values.len();
+
+                ScrollArea::vertical()
+                    .auto_shrink([false; 2])
                     .show(ui, |ui| {
-                        for i in 0..self.system_fader_values.len() {
-                            let is_muted = self.system_muted[i];
-                            Self::render_fader_with_mute(
-                                ui,
-                                &mut self.system_fader_values[i],
-                                &self.system_fader_labels[i].1,
-                                self.system_fader_labels[i].0,
-                                Color32::from_rgb(100, 150, 220),
-                                is_muted,
-                            );
-                            ui.end_row();
+                        Frame::default()
+                            .inner_margin(egui::Margin { left: 20, right: 20, top: 8, bottom: 8 })
+                            .fill(theme::BG_PRIMARY)
+                            .show(ui, |ui| {
+                        // System/Sink Controls Section
+                        if !self.system_fader_values.is_empty() {
+                            ui.add_space(16.0);
+                            Self::render_section_header(ui, "🔊 Audio Sinks", theme::ACCENT_BLUE);
+                            ui.add_space(8.0);
+                            
+                            for i in 0..self.system_fader_values.len() {
+                                let is_muted = self.system_muted[i];
+                                let old_value = self.system_fader_values[i];
+                                Self::render_fader_with_mute(
+                                    ui,
+                                    &mut self.system_fader_values[i],
+                                    &self.system_fader_labels[i].1,
+                                    self.system_fader_labels[i].0,
+                                    theme::ACCENT_BLUE,
+                                    is_muted,
+                                );
+                                if old_value != self.system_fader_values[i] {
+                                    changed_faders.push((true, i, self.system_fader_values[i]));
+                                }
+                                ui.add_space(2.0);
+                            }
+                            
+                            ui.add_space(8.0);
+                            ui.separator();
                         }
-                    });
-                
-                ui.add_space(15.0);
-                ui.separator();
-            }
 
-            // Applications Controls Section
-            if !self.app_fader_values.is_empty() {
-                ui.add_space(10.0);
-                ui.heading(RichText::new("🎵 Applications").color(Color32::from_rgb(200, 150, 100)));
-                ui.add_space(5.0);
-                
-                Grid::new("app_faders_grid")
-                    .num_columns(1)
-                    .spacing([60.0, 20.0])
-                    .show(ui, |ui| {
-                        for i in 0..self.app_fader_values.len() {
-                            let is_muted = self.app_muted[i];
-                            Self::render_fader_with_mute(
-                                ui,
-                                &mut self.app_fader_values[i],
-                                &self.app_fader_labels[i].1,
-                                self.app_fader_labels[i].0,
-                                Color32::from_rgb(200, 150, 100),
-                                is_muted,
-                            );
-                            ui.end_row();
+                        // Applications Controls Section
+                        if !self.app_fader_values.is_empty() {
+                            ui.add_space(16.0);
+                            Self::render_section_header(ui, "🎵 Applications", theme::ACCENT_ORANGE);
+                            ui.add_space(8.0);
+                            
+                            for i in 0..self.app_fader_values.len() {
+                                let is_muted = self.app_muted[i];
+                                let old_value = self.app_fader_values[i];
+                                Self::render_fader_with_mute(
+                                    ui,
+                                    &mut self.app_fader_values[i],
+                                    &self.app_fader_labels[i].1,
+                                    self.app_fader_labels[i].0,
+                                    theme::ACCENT_ORANGE,
+                                    is_muted,
+                                );
+                                if old_value != self.app_fader_values[i] {
+                                    changed_faders.push((false, i, self.app_fader_values[i]));
+                                }
+                                ui.add_space(12.0);
+                            }
+                            
+                            ui.add_space(8.0);
+                            ui.separator();
                         }
-                    });
-                
-                ui.add_space(15.0);
-                ui.separator();
-            }
 
-            ui.add_space(15.0);
-            ui.separator();
-            ui.label(RichText::new(format!("♪ nanoKontrol2 CC's in use: {}", total_ccs))
-                .color(Color32::from_rgb(150, 150, 150)));
+                        // Footer
+                        ui.add_space(16.0);
+                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
+                            ui.label(RichText::new(format!("⚙ {} CC controls active", total_ccs))
+                                .color(theme::TEXT_SECONDARY)
+                                .size(12.0));
+                        });
+                        ui.add_space(16.0);
+                            });  // Close Frame
+                    });  // Close ScrollArea
+        });  // Close CentralPanel
+        
+        changed_faders
+    }
+    
+    fn render_section_header(ui: &mut Ui, title: &str, color: Color32) {
+        ui.horizontal(|ui| {
+            ui.add_space(4.0);
+            ui.label(RichText::new(title)
+                .strong()
+                .size(16.0)
+                .color(color));
         });
     }
     
@@ -144,151 +240,141 @@ impl UiState {
         section_color: Color32,
         is_muted: bool,
     ) {
-        // Label with CC number and mute indicator
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                let mute_icon = if is_muted { "🔇" } else { "🔊" };
-                ui.label(RichText::new(format!("{} {}", mute_icon, label))
-                    .strong()
-                    .color(if is_muted { Color32::GRAY } else { section_color }));
-                ui.label(RichText::new(format!("CC{}", cc_num)).small().color(Color32::GRAY));
+        // Container for each fader
+        Frame::default()
+            .fill(theme::BG_SECONDARY)
+            .stroke(Stroke::new(1.0, theme::BORDER))
+            .inner_margin(Margin::symmetric(20, 20))
+            .corner_radius(CornerRadius::same(6))
+            .show(ui, |ui| {
+                ui.vertical(|ui| {
+                    // Header with label and mute icon
+                    ui.horizontal(|ui| {
+                        let mute_icon = if is_muted { "🔇" } else { "🔊" };
+                        let label_color = if is_muted { theme::TEXT_MUTED } else { section_color };
+                        
+                        ui.label(RichText::new(mute_icon).size(14.0));
+                        ui.label(RichText::new(label)
+                            .strong()
+                            .size(13.0)
+                            .color(label_color));
+                        
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(format!("[CC{}]", cc_num))
+                            .size(10.0)
+                            .color(theme::TEXT_MUTED));
+                    });
+                    
+                    ui.add_space(2.0);
+                    
+                    // Fader slider
+                    let value = *fader_value;
+                    let percent = (value as f32 / 127.0 * 100.0) as u8;
+                    
+                    let fader_color = if is_muted {
+                        theme::TEXT_MUTED
+                    } else {
+                        section_color
+                    };
+                    
+                    // Volume percentage display at the front
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(format!("{}%", percent))
+                            .color(fader_color)
+                            .size(11.0));
+                        
+                        if is_muted {
+                            ui.add_space(4.0);
+                            ui.label(RichText::new("(MUTED)")
+                                .color(theme::ACCENT_RED)
+                                .size(10.0)
+                                .italics());
+                        }
+                        
+                        ui.add_space(8.0);
+                        
+                        // Custom slider styling
+                        ui.style_mut().visuals.selection.bg_fill = fader_color;
+                        ui.style_mut().visuals.widgets.active.bg_fill = fader_color;
+                        
+                        ui.add(
+                            Slider::new(fader_value, 0..=127)
+                                .show_value(false)
+                                .text("")
+                        );
+                    });
+                    
+                    ui.add_space(4.0);
+                    
+                    // Visual bar display
+                    let bar_width = ui.available_width();
+                    let bar_height = 7.0;
+                    let filled_width = bar_width * (percent as f32 / 100.0);
+                    
+                    let (rect, _response) = ui.allocate_exact_size(
+                        vec2(bar_width, bar_height),
+                        Sense::hover()
+                    );
+                    
+                    // Background bar
+                    ui.painter().rect_filled(
+                        rect,
+                        3.0,
+                        theme::BG_TERTIARY
+                    );
+                    
+                    // Filled bar
+                    if filled_width > 0.5 {
+                        let filled_rect = Rect::from_min_size(rect.min, vec2(filled_width, bar_height));
+                        ui.painter().rect_filled(filled_rect, 3.0, fader_color);
+                    }
+                });
             });
-        });
-        
-        let value = *fader_value;
-        let percent = (value as f32 / 127.0 * 100.0) as u8;
-        
-        // Apply grayed-out style if muted
-        let fader_color = if is_muted {
-            Color32::from_rgb(100, 100, 100)
-        } else {
-            section_color
-        };
-        
-        ui.vertical(|ui| {
-            ui.style_mut().visuals.selection.bg_fill = fader_color;
-            ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 45);
-            ui.style_mut().visuals.widgets.active.bg_fill = fader_color;
-            
-            ui.add_sized(
-                vec2(800.0, 10.0),
-                Slider::new(fader_value, 0..=127)
-                    .show_value(false)
-                    .text(format!("{}%{}", percent, if is_muted { " (MUTED)" } else { "" }))
-            );
-            
-            // Add visual volume bar
-            let bar_width = ui.available_width();
-            let bar_height = 6.0;
-            let filled_width = bar_width * (percent as f32 / 100.0);
-            
-            let (rect, _response) = ui.allocate_exact_size(
-                vec2(bar_width, bar_height),
-                Sense::hover()
-            );
-            
-            // Background bar
-            ui.painter().rect_filled(
-                rect,
-                2.0,
-                Color32::from_rgb(30, 30, 35)
-            );
-            
-            // Filled bar (with mute color if muted)
-            if filled_width > 0.0 {
-                let filled_rect = Rect::from_min_size(rect.min, vec2(filled_width, bar_height));
-                ui.painter().rect_filled(filled_rect, 2.0, fader_color);
-            }
-        });
-    }
-
-    #[deprecated]
-    fn render_fader_static(
-        ui: &mut Ui,
-        fader_value: &mut u8,
-        label: &str,
-        cc_num: u8,
-        section_color: Color32,
-    ) {
-        // Label with CC number
-        ui.vertical(|ui| {
-            ui.label(RichText::new(label).strong().color(section_color));
-            ui.label(RichText::new(format!("CC{}", cc_num)).small().color(Color32::GRAY));
-        });
-        
-        let value = *fader_value;
-        let percent = (value as f32 / 127.0 * 100.0) as u8;
-        
-        ui.vertical(|ui| {
-            ui.style_mut().visuals.selection.bg_fill = section_color;
-            ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(40, 40, 45);
-            ui.style_mut().visuals.widgets.active.bg_fill = section_color;
-            
-            ui.add_sized(
-                vec2(800.0, 10.0),
-                Slider::new(fader_value, 0..=127)
-                    .show_value(false)
-                    .text(format!("{}%", percent))
-            );
-            
-            // Add visual volume bar
-            let bar_width = ui.available_width();
-            let bar_height = 6.0;
-            let filled_width = bar_width * (percent as f32 / 100.0);
-            
-            let (rect, _response) = ui.allocate_exact_size(
-                vec2(bar_width, bar_height),
-                Sense::hover()
-            );
-            
-            // Background bar
-            ui.painter().rect_filled(
-                rect,
-                2.0,
-                Color32::from_rgb(30, 30, 35)
-            );
-            
-            // Filled portion
-            if filled_width > 0.0 {
-                let filled_rect = Rect::from_min_size(
-                    rect.min,
-                    vec2(filled_width, bar_height)
-                );
-                ui.painter().rect_filled(
-                    filled_rect,
-                    2.0,
-                    section_color
-                );
-            }
-        });
     }
 
     pub fn render_console_tab(&mut self, ctx: &Context) {
-        CentralPanel::default().show(ctx, |ui| {
-            ui.heading("▣ Console Output");
+        CentralPanel::default()
+            .frame(Frame::default().fill(theme::BG_PRIMARY))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.add_space(8.0);
+                    ui.label(RichText::new("📋 Console Output")
+                        .strong()
+                        .size(16.0)
+                        .color(theme::ACCENT_GREEN));
+                });
 
-            ui.separator();
+                ui.add_space(8.0);
+                ui.separator();
 
-            // Console output with scrolling - always shows latest messages
-            let scroll_area = ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .stick_to_bottom(true);
-
-            scroll_area.show(ui, |ui| {
-                ui.style_mut().spacing.item_spacing.y = 4.0;
-                
-                // Display only the last 30 messages
-                let start_index = self.console_output.len().saturating_sub(30);
-                for (message, timestamp) in &self.console_output[start_index..] {
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("[{}]", timestamp.format("%H:%M:%S")))
-                            .color(Color32::from_rgb(100, 150, 200))
-                            .monospace());
-                        ui.label(RichText::new(message)
-                            .color(Color32::from_rgb(200, 200, 200)));
+                // Console output with scrolling
+                ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        Frame::default()
+                            .fill(theme::BG_SECONDARY)
+                            .stroke(Stroke::new(1.0, theme::BORDER))
+                            .inner_margin(Margin::same(8))
+                            .corner_radius(CornerRadius::same(4))
+                            .show(ui, |ui| {
+                                ui.style_mut().spacing.item_spacing.y = 2.0;
+                                
+                                let start_index = self.console_output.len().saturating_sub(30);
+                                for (message, timestamp) in &self.console_output[start_index..] {
+                                    ui.horizontal(|ui| {
+                                        ui.label(RichText::new(format!("{}", timestamp.format("%H:%M:%S")))
+                                            .color(theme::ACCENT_BLUE)
+                                            .monospace()
+                                            .size(10.0));
+                                        ui.separator();
+                                        ui.label(RichText::new(message)
+                                            .color(theme::TEXT_PRIMARY)
+                                            .size(11.0));
+                                    });
+                                }
+                            });
                     });
-                }
             });
-        });
     }
 }

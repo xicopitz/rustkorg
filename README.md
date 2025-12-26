@@ -6,11 +6,15 @@ A Rust application that allows you to control PipeWire audio volume using faders
 
 ## Features
 
-- 🎚️ **Real-time Fader Visualization**: 8 faders with live value display (0-127 / 0-100%)
-- 🎵 **PipeWire Integration**: Direct control of system volume via `pw-volume`
-- 📝 **Console Output Tab**: View all MIDI events and system messages with timestamps
-- 🖥️ **Cross-Platform UI**: Built with egui for smooth immediate-mode rendering
-- ⚡ **Responsive**: Real-time updates at 60+ FPS
+- 🎚️ **Real-time Fader Visualization**: Multiple audio sinks and applications with live value display
+- 📊 **Visual Volume Bars**: Percentage display with colored bars for each fader
+- 🔇 **Mute Buttons**: Individual mute/unmute buttons for each fader with LED feedback
+- 🎵 **PipeWire Integration**: Direct control of audio volume via PipeWire
+- 💬 **Console Output Tab**: Timestamped log of all MIDI events and system messages
+- 🖥️ **Modern UI**: Built with egui for smooth immediate-mode rendering at 60+ FPS
+- ⚡ **Responsive**: Zero-debounce MIDI response for instant control
+- ⚙️ **Configurable**: TOML-based configuration for custom CC mappings
+- 🔄 **Bidirectional Control**: Physical device ↔ UI slider synchronization
 
 ## Requirements
 
@@ -121,34 +125,88 @@ cargo build --release
 
 ## Architecture
 
+### High-Level Design
+
 ```
-┌────────────────────────────────────────────┐
-│  nanoKontrol2 (USB MIDI Device)           │
-└─────────────────┬──────────────────────────┘
-                  │ MIDI CC Messages (0-127)
-                  ▼
-┌────────────────────────────────────────────┐
-│  MIDI Listener Thread (midir)             │
-│  • Detects device                          │
-│  • Parses CC messages                      │
-│  • Sends to channel                        │
-└─────────────────┬──────────────────────────┘
-                  │ MidiMessage events
-                  ▼
-┌────────────────────────────────────────────┐
-│  UI Thread (egui/eframe)                  │
-│  • Real-time fader visualization          │
-│  • Tabs for Faders & Console              │
-│  • 60+ FPS rendering                      │
-└─────────────────┬──────────────────────────┘
-                  │ Volume requests
-                  ▼
-┌────────────────────────────────────────────┐
-│  PipeWire Control (pw-volume)             │
-│  • Subprocess calls to set volume         │
-│  • Affects active audio sink              │
-└────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          nanoKontrol2 USB Device                         │
+│                         (MIDI Controller)                                │
+└──────────────────────────┬───────────────────────────────────────────────┘
+                           │ MIDI CC Messages (0-127)
+                           │
+              ┌────────────▼────────────┐
+              │   MIDI Input Handler    │
+              │  (midir + std::thread)  │
+              │  • Device detection     │
+              │  • CC message parsing   │
+              │  • Channel broadcast    │
+              └────────────┬────────────┘
+                           │ MidiMessage events
+              ┌────────────▼──────────────────────────┐
+              │   Main Application (tokio/async)     │
+              │  • Message processing                │
+              │  • State management                  │
+              │  • Volume calculations               │
+              │  • Debounce & filtering              │
+              └────────────┬──────────────────────────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         │                 │                 │
+         ▼                 ▼                 ▼
+    ┌─────────┐      ┌──────────┐      ┌──────────────┐
+    │ UI Desc │      │ MIDI Out │      │ Audio Volume │
+    │(egui)   │      │ (midir)  │      │(PipeWire)    │
+    │         │      │          │      │              │
+    │ Control │ ◄─► │ LED Back │ ──► │Set Volume    │
+    │ Console │      │ feedback │      │for Sinks     │
+    │ Tabs    │      │          │      │& Apps        │
+    └─────────┘      └──────────┘      └──────────────┘
+         │
+         └─────────────────────────────────────────────┐
+                                                       ▼
+                                        ┌──────────────────────────┐
+                                        │   PipeWire Audio System  │
+                                        │  • Audio Sinks           │
+                                        │  • Applications          │
+                                        │  • Volume Control        │
+                                        └──────────────────────────┘
 ```
+
+### Component Overview
+
+| Component | Purpose | Technology |
+|-----------|---------|-----------|
+| **MIDI Handler** | Detects and reads MIDI messages from nanoKontrol2 | midir crate |
+| **Main Application** | Processes messages, manages state, orchestrates logic | Rust async/tokio |
+| **UI Thread** | Renders real-time interface with 60+ FPS | egui + eframe |
+| **MIDI Output** | Sends LED feedback to controller buttons | midir |
+| **Audio Control** | Sets volume levels for sinks and applications | PipeWire API |
+| **Configuration** | Maps CC numbers to audio devices and buttons | TOML file |
+
+### Data Flow
+
+1. **MIDI Input Flow**
+   - nanoKontrol2 sends CC messages (0-127)
+   - MIDI Handler receives and parses messages
+   - Messages sent via channel to main app
+
+2. **Processing Flow**
+   - Main app debounces messages (configurable)
+   - Calculates percentage (0-127 → 0-100%)
+   - Updates internal state
+   - Triggers UI re-render and audio update
+
+3. **Output Flow**
+   - UI renders current fader values and visual bars
+   - Audio control sets PipeWire volume
+   - MIDI output sends LED feedback to controller
+
+### Threading Model
+
+- **Main Thread**: Event loop, message processing, state management
+- **MIDI Listener Thread**: Dedicated thread for MIDI input (non-blocking)
+- **UI Thread**: egui rendering loop (60 FPS)
+- **Audio Worker Threads**: Async volume setting via PipeWire (non-blocking)
 
 ## Project Structure
 
