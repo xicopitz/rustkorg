@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use log::error;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -15,6 +15,62 @@ pub enum MidiMessage {
 
 pub struct MidiListener {
     _tx: mpsc::Sender<MidiMessage>,
+}
+
+// MIDI output controller for sending LED feedback to the device
+pub struct MidiOutput {
+    output: Arc<Mutex<Option<midir::MidiOutputConnection>>>,
+}
+
+impl MidiOutput {
+    pub fn new() -> Result<Self> {
+        let output = midir::MidiOutput::new("nanoKontrol2 Output")
+            .map_err(|e| anyhow!("Failed to create MIDI output: {}", e))?;
+        let ports = output.ports();
+
+        let port_index = ports
+            .iter()
+            .position(|port| {
+                output
+                    .port_name(port)
+                    .ok()
+                    .map(|name| {
+                        let lower = name.to_lowercase();
+                        lower.contains("nanokontrol") || lower.contains("korg")
+                    })
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| anyhow!("nanoKontrol2 output not found"))?;
+
+        let conn = output.connect(&ports[port_index], "korg-volume-out")
+            .map_err(|e| anyhow!("Failed to connect to nanoKontrol2 MIDI output: {}", e))?;
+
+        Ok(MidiOutput {
+            output: Arc::new(Mutex::new(Some(conn))),
+        })
+    }
+
+    /// Send a Control Change message to light up a button LED
+    /// value: 0 = LED off, 127 = LED on
+    pub fn send_cc(&self, cc: u8, value: u8) {
+        if let Ok(mut output_guard) = self.output.lock() {
+            if let Some(conn) = output_guard.as_mut() {
+                // Control Change message: 0xB0 = channel 0, followed by CC number and value
+                let message = [0xB0, cc, value];
+                let _ = conn.send(&message);
+            }
+        }
+    }
+
+    /// Turn on a button LED
+    pub fn light_button(&self, cc: u8) {
+        self.send_cc(cc, 127);
+    }
+
+    /// Turn off a button LED
+    pub fn unlight_button(&self, cc: u8) {
+        self.send_cc(cc, 0);
+    }
 }
 
 impl MidiListener {

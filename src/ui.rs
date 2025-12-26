@@ -1,5 +1,4 @@
 use egui::*;
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {

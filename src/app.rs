@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::midi::{MidiListener, MidiMessage};
+use crate::midi::{MidiListener, MidiMessage, MidiOutput};
 use crate::pipewire_control::PipeWireController;
 use crate::ui::UiState;
 use log::info;
@@ -14,6 +14,7 @@ pub struct MidiVolumeApp {
     ui_state: UiState,
     midi_rx: mpsc::Receiver<MidiMessage>,
     _midi_listener: MidiListener,
+    midi_output: MidiOutput,  // MIDI output for LED feedback
     pipewire: PipeWireController,
     cc_mapping: HashMap<u8, String>,  // Maps CC number to audio target name
     cc_types: HashMap<u8, bool>,  // Maps CC to is_sink (true=sink, false=app)
@@ -95,10 +96,23 @@ impl MidiVolumeApp {
         // Load mute button mappings
         let mute_button_mapping = config.get_mute_button_mappings();
 
+        // Initialize MIDI output for LED feedback
+        let midi_output = match MidiOutput::new() {
+            Ok(output) => output,
+            Err(e) => {
+                if logging_enabled {
+                    info!("Warning: Could not initialize MIDI output for LED feedback: {}", e);
+                }
+                // Try fallback, but if both fail, panic with clear message
+                panic!("Failed to initialize MIDI output: {}. Is the nanoKontrol2 device connected?", e);
+            }
+        };
+
         let mut app = MidiVolumeApp {
             ui_state: UiState::new(sink_labels.clone(), app_labels.clone()),
             midi_rx: rx,
             _midi_listener: listener,
+            midi_output,
             pipewire,
             cc_mapping,
             cc_types,
@@ -159,7 +173,7 @@ impl MidiVolumeApp {
                 if let Some(&target_cc) = self.mute_button_mapping.get(&cc) {
                     // Mute button pressed (CC value > 0 means button pressed on nanoKontrol2)
                     if value > 0 {
-                        self.handle_mute_button(target_cc);
+                        self.handle_mute_button(cc, target_cc);
                     }
                     continue;
                 }
@@ -225,7 +239,7 @@ impl MidiVolumeApp {
         }
     }
     
-    fn handle_mute_button(&mut self, target_cc: u8) {
+    fn handle_mute_button(&mut self, button_cc: u8, target_cc: u8) {
         // Determine if target is a sink or app
         let is_sink = self.cc_types.get(&target_cc).copied().unwrap_or(true);
         
@@ -233,7 +247,7 @@ impl MidiVolumeApp {
             // Handle sink mute
             if let Some(&ui_index) = self.cc_to_sink_index.get(&target_cc) {
                 if ui_index < self.ui_state.system_muted.len() {
-                    self.toggle_sink_mute(ui_index, target_cc);
+                    self.toggle_sink_mute(ui_index, target_cc, button_cc);
                     if self.logging_enabled {
                         let muted = self.ui_state.system_muted[ui_index];
                         self.ui_state.add_console_message(
@@ -246,7 +260,7 @@ impl MidiVolumeApp {
             // Handle app mute
             if let Some(&ui_index) = self.cc_to_app_index.get(&target_cc) {
                 if ui_index < self.ui_state.app_muted.len() {
-                    self.toggle_app_mute(ui_index, target_cc);
+                    self.toggle_app_mute(ui_index, target_cc, button_cc);
                     if self.logging_enabled {
                         let muted = self.ui_state.app_muted[ui_index];
                         self.ui_state.add_console_message(
@@ -258,7 +272,7 @@ impl MidiVolumeApp {
         }
     }
     
-    fn toggle_sink_mute(&mut self, ui_index: usize, cc: u8) {
+    fn toggle_sink_mute(&mut self, ui_index: usize, cc: u8, button_cc: u8) {
         let is_muted = self.ui_state.system_muted[ui_index];
         
         if is_muted {
@@ -266,6 +280,9 @@ impl MidiVolumeApp {
             let previous_volume = self.ui_state.system_muted_volume[ui_index];
             self.ui_state.system_fader_values[ui_index] = previous_volume;
             self.ui_state.system_muted[ui_index] = false;
+            
+            // Turn off LED on button
+            self.midi_output.unlight_button(button_cc);
             
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
@@ -282,6 +299,9 @@ impl MidiVolumeApp {
             self.ui_state.system_fader_values[ui_index] = 0;
             self.ui_state.system_muted[ui_index] = true;
             
+            // Turn on LED on button
+            self.midi_output.light_button(button_cc);
+            
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let target_clone = target.clone();
                 thread::spawn(move || {
@@ -292,7 +312,7 @@ impl MidiVolumeApp {
         }
     }
     
-    fn toggle_app_mute(&mut self, ui_index: usize, cc: u8) {
+    fn toggle_app_mute(&mut self, ui_index: usize, cc: u8, button_cc: u8) {
         let is_muted = self.ui_state.app_muted[ui_index];
         
         if is_muted {
@@ -300,6 +320,9 @@ impl MidiVolumeApp {
             let previous_volume = self.ui_state.app_muted_volume[ui_index];
             self.ui_state.app_fader_values[ui_index] = previous_volume;
             self.ui_state.app_muted[ui_index] = false;
+            
+            // Turn off LED on button
+            self.midi_output.unlight_button(button_cc);
             
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
@@ -315,6 +338,9 @@ impl MidiVolumeApp {
             self.ui_state.app_muted_volume[ui_index] = current_volume;
             self.ui_state.app_fader_values[ui_index] = 0;
             self.ui_state.app_muted[ui_index] = true;
+            
+            // Turn on LED on button
+            self.midi_output.light_button(button_cc);
             
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let target_clone = target.clone();
