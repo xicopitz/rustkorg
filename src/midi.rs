@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use log::{info, error};
+use log::error;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -36,13 +36,6 @@ impl MidiListener {
 
         // Find and connect to nanoKontrol2
         let ports = input.ports();
-        info!("Available MIDI ports: {}", ports.len());
-
-        for (i, port) in ports.iter().enumerate() {
-            if let Ok(name) = input.port_name(port) {
-                info!("  Port {}: {}", i, name);
-            }
-        }
 
         let port_index = ports
             .iter()
@@ -58,8 +51,7 @@ impl MidiListener {
             })
             .ok_or_else(|| anyhow!("nanoKontrol2 device not found"))?;
 
-        let port_name = input.port_name(&ports[port_index])?;
-        info!("Connected to MIDI device: {}", port_name);
+        let _port_name = input.port_name(&ports[port_index])?;
 
         // Create a simple callback that logs events
         let tx_clone = tx.clone();
@@ -76,8 +68,6 @@ impl MidiListener {
             anyhow!("Failed to connect to MIDI: {:?}", e)
         })?;
 
-        info!("MIDI listener active, waiting for fader movements...");
-
         // Keep the connection alive indefinitely
         loop {
             thread::sleep(Duration::from_secs(1));
@@ -91,7 +81,6 @@ impl MidiListener {
         
         if status == 0xB0 {
             // Control Change on channel 0 - send all CC messages
-            info!("MIDI CC{} -> value: {}", controller, value);
             let msg = MidiMessage::ControlChange { cc: controller, value };
             let _ = tx.send(msg);
         }

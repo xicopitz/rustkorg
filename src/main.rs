@@ -6,11 +6,23 @@ mod ui;
 
 use anyhow::Result;
 use app::MidiVolumeApp;
+use config::Config;
 
 fn main() -> Result<()> {
-    env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Info)
-        .init();
+    // Load config to check if logging is enabled
+    let config = Config::load("config.toml").unwrap_or_else(|_| Config::default());
+    
+    // Only initialize logging if enabled in config
+    if config.logging.enabled.unwrap_or(true) {
+        env_logger::Builder::from_default_env()
+            .filter_level(log::LevelFilter::Info)
+            .init();
+    } else {
+        // Set log level to Off to disable all logging
+        env_logger::Builder::from_default_env()
+            .filter_level(log::LevelFilter::Off)
+            .init();
+    }
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
