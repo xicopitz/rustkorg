@@ -5,6 +5,7 @@ use crate::ui::UiState;
 use log::info;
 use std::collections::HashMap;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 
@@ -15,7 +16,7 @@ pub struct MidiVolumeApp {
     midi_rx: mpsc::Receiver<MidiMessage>,
     _midi_listener: MidiListener,
     midi_output: MidiOutput,  // MIDI output for LED feedback
-    pipewire: PipeWireController,
+    pipewire: Arc<Mutex<PipeWireController>>,  // Wrapped in Arc<Mutex> for thread-safe access
     cc_mapping: HashMap<u8, String>,  // Maps CC number to audio target name
     cc_types: HashMap<u8, bool>,  // Maps CC to is_sink (true=sink, false=app)
     last_volume_values: HashMap<u8, u8>,  // Cache last sent volume for each CC
@@ -42,6 +43,8 @@ impl MidiVolumeApp {
         let logging_enabled = config.logging.enabled.unwrap_or(true);
         let debounce_ms = config.audio.debounce_ms.unwrap_or(0);
         let applications_sink_search_interval_secs = config.audio.applications_sink_search.unwrap_or(10);
+        let show_console = config.ui.show_console.unwrap_or(false);
+        let max_console_lines = config.ui.max_console_lines.unwrap_or(1000);
         
         if logging_enabled {
             info!("Initializing MIDI Volume Controller");
@@ -82,7 +85,7 @@ impl MidiVolumeApp {
         if logging_enabled {
             info!("DEBUG: volume_control_mode = {:?}, use_api = {}", config.audio.volume_control_mode, use_api);
         }
-        let pipewire = PipeWireController::new(use_api);
+        let pipewire = Arc::new(Mutex::new(PipeWireController::new(use_api)));
 
         // Build CC to UI index mappings for fast lookup
         let mut cc_to_sink_index = HashMap::with_capacity(sink_labels.len());
@@ -111,11 +114,11 @@ impl MidiVolumeApp {
         };
 
         let mut app = MidiVolumeApp {
-            ui_state: UiState::new(sink_labels.clone(), app_labels.clone()),
+            ui_state: UiState::new(sink_labels.clone(), app_labels.clone(), show_console, max_console_lines),
             midi_rx: rx,
             _midi_listener: listener,
             midi_output,
-            pipewire,
+            pipewire: pipewire.clone(),
             cc_mapping,
             cc_types,
             last_volume_values: HashMap::with_capacity(cc_count),
@@ -131,7 +134,7 @@ impl MidiVolumeApp {
 
         // Initialize UI fader values for sink controls
         for (i, (cc, target)) in sink_labels.iter().enumerate() {
-            let current_volume = app.pipewire.get_volume_for_sink(target);
+            let current_volume = pipewire.lock().unwrap().get_volume_for_sink(target);
             
             // Set UI fader to current volume (0-127 range)
             app.ui_state.system_fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
@@ -140,7 +143,7 @@ impl MidiVolumeApp {
 
         // Initialize UI fader values for application controls
         for (i, (cc, app_name)) in app_labels.iter().enumerate() {
-            let current_volume = app.pipewire.get_volume_for_app(app_name);
+            let current_volume = pipewire.lock().unwrap().get_volume_for_app(app_name);
             
             // Set UI fader to current volume (0-127 range)
             app.ui_state.app_fader_values[i] = ((current_volume as f32 / 100.0) * 127.0) as u8;
@@ -167,9 +170,9 @@ impl MidiVolumeApp {
     fn process_midi_messages(&mut self) {
         // Process all pending MIDI messages immediately for instant response
         while let Ok(msg) = self.midi_rx.try_recv() {
-            if let MidiMessage::ControlChange { cc, value } = msg {
-                // Log MIDI CC message to console if logging is enabled
-                if self.logging_enabled {
+            let MidiMessage::ControlChange { cc, value } = msg;
+            // Log MIDI CC message to console if logging is enabled
+            if self.logging_enabled {
                     self.ui_state.add_console_message(format!("MIDI CC{} -> value: {}", cc, value));
                 }
                 
@@ -183,7 +186,7 @@ impl MidiVolumeApp {
                 }
                 
                 // Check if this CC is mapped to an audio target (volume fader)
-                if let Some(target) = self.cc_mapping.get(&cc) {
+                if self.cc_mapping.contains_key(&cc) {
                     let percent = ((value as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
                     
                     // Debounce: Skip if value hasn't changed or updated too recently
@@ -210,12 +213,16 @@ impl MidiVolumeApp {
                     
                     // Determine if this is a sink or app control
                     if self.cc_types.get(&cc).copied().unwrap_or(true) {
-                        // Sink control
-                        let target_clone = target.clone();
-                        thread::spawn(move || {
-                            let pipewire = PipeWireController::new(false);
-                            let _ = pipewire.set_volume_for_sink(&target_clone, percent);
-                        });
+                        // Sink control - spawn thread to avoid blocking UI
+                        if let Some(target) = self.cc_mapping.get(&cc) {
+                            let pipewire = self.pipewire.clone();
+                            let target_clone = target.clone();
+                            thread::spawn(move || {
+                                if let Ok(pw) = pipewire.lock() {
+                                    let _ = pw.set_volume_for_sink(&target_clone, percent);
+                                }
+                            });
+                        }
                         
                         // Update UI fader for this sink using cached index
                         if let Some(&ui_index) = self.cc_to_sink_index.get(&cc) {
@@ -224,12 +231,16 @@ impl MidiVolumeApp {
                             }
                         }
                     } else {
-                        // App control
-                        let target_clone = target.clone();
-                        thread::spawn(move || {
-                            let pipewire = PipeWireController::new(false);
-                            let _ = pipewire.set_volume_for_app(&target_clone, percent);
-                        });
+                        // App control - spawn thread to avoid blocking UI
+                        if let Some(target) = self.cc_mapping.get(&cc) {
+                            let pipewire = self.pipewire.clone();
+                            let target_clone = target.clone();
+                            thread::spawn(move || {
+                                if let Ok(pw) = pipewire.lock() {
+                                    let _ = pw.set_volume_for_app(&target_clone, percent);
+                                }
+                            });
+                        }
                         
                         // Update UI fader for this app using cached index
                         if let Some(&ui_index) = self.cc_to_app_index.get(&cc) {
@@ -241,7 +252,6 @@ impl MidiVolumeApp {
                 }
             }
         }
-    }
     
     fn handle_mute_button(&mut self, button_cc: u8, target_cc: u8) {
         // Determine if target is a sink or app
@@ -290,10 +300,14 @@ impl MidiVolumeApp {
             
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
+                let pipewire = self.pipewire.clone();
                 let target_clone = target.clone();
+                
+                // Spawn thread to avoid blocking UI
                 thread::spawn(move || {
-                    let pipewire = PipeWireController::new(false);
-                    let _ = pipewire.set_volume_for_sink(&target_clone, percent);
+                    if let Ok(pw) = pipewire.lock() {
+                        let _ = pw.set_volume_for_sink(&target_clone, percent);
+                    }
                 });
             }
         } else {
@@ -307,10 +321,14 @@ impl MidiVolumeApp {
             self.midi_output.light_button(button_cc);
             
             if let Some(target) = self.cc_mapping.get(&cc) {
+                let pipewire = self.pipewire.clone();
                 let target_clone = target.clone();
+                
+                // Spawn thread to avoid blocking UI
                 thread::spawn(move || {
-                    let pipewire = PipeWireController::new(false);
-                    let _ = pipewire.set_volume_for_sink(&target_clone, 0);
+                    if let Ok(pw) = pipewire.lock() {
+                        let _ = pw.set_volume_for_sink(&target_clone, 0);
+                    }
                 });
             }
         }
@@ -330,10 +348,14 @@ impl MidiVolumeApp {
             
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
+                let pipewire = self.pipewire.clone();
                 let target_clone = target.clone();
+                
+                // Spawn thread to avoid blocking UI
                 thread::spawn(move || {
-                    let pipewire = PipeWireController::new(false);
-                    let _ = pipewire.set_volume_for_app(&target_clone, percent);
+                    if let Ok(pw) = pipewire.lock() {
+                        let _ = pw.set_volume_for_app(&target_clone, percent);
+                    }
                 });
             }
         } else {
@@ -347,10 +369,14 @@ impl MidiVolumeApp {
             self.midi_output.light_button(button_cc);
             
             if let Some(target) = self.cc_mapping.get(&cc) {
+                let pipewire = self.pipewire.clone();
                 let target_clone = target.clone();
+                
+                // Spawn thread to avoid blocking UI
                 thread::spawn(move || {
-                    let pipewire = PipeWireController::new(false);
-                    let _ = pipewire.set_volume_for_app(&target_clone, 0);
+                    if let Ok(pw) = pipewire.lock() {
+                        let _ = pw.set_volume_for_app(&target_clone, 0);
+                    }
                 });
             }
         }
@@ -365,10 +391,14 @@ impl MidiVolumeApp {
                     let percent = ((new_value as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
                     
                     if let Some(target) = self.cc_mapping.get(&cc) {
+                        let pipewire = self.pipewire.clone();
                         let target_clone = target.clone();
+                        
+                        // Spawn thread to avoid blocking UI
                         thread::spawn(move || {
-                            let pipewire = PipeWireController::new(false);
-                            let _ = pipewire.set_volume_for_sink(&target_clone, percent);
+                            if let Ok(pw) = pipewire.lock() {
+                                let _ = pw.set_volume_for_sink(&target_clone, percent);
+                            }
                         });
                     }
                     
@@ -385,10 +415,14 @@ impl MidiVolumeApp {
                     let percent = ((new_value as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
                     
                     if let Some(target) = self.cc_mapping.get(&cc) {
+                        let pipewire = self.pipewire.clone();
                         let target_clone = target.clone();
+                        
+                        // Spawn thread to avoid blocking UI
                         thread::spawn(move || {
-                            let pipewire = PipeWireController::new(false);
-                            let _ = pipewire.set_volume_for_app(&target_clone, percent);
+                            if let Ok(pw) = pipewire.lock() {
+                                let _ = pw.set_volume_for_app(&target_clone, percent);
+                            }
                         });
                     }
                     
@@ -409,22 +443,22 @@ impl MidiVolumeApp {
         }
         self.last_availability_check = Instant::now();
 
-        // Check sink availability
-        for i in 0..self.ui_state.system_fader_labels.len() {
-            let sink_name = &self.ui_state.system_fader_labels[i].1;
-            // Check if sink exists by trying to get its volume
-            // If get_volume returns 0, we assume it doesn't exist (safe assumption)
-            let volume = self.pipewire.get_volume_for_sink(sink_name);
-            self.ui_state.system_available[i] = volume > 0 || 
-                self.pipewire.get_volume_for_sink(sink_name) == 0;  // Default available unless specifically unavailable
-        }
+        // Check sink availability - assume available unless it errors
+        if let Ok(pipewire) = self.pipewire.lock() {
+            for i in 0..self.ui_state.system_fader_labels.len() {
+                let sink_name = &self.ui_state.system_fader_labels[i].1;
+                // Sinks are typically always available, so default to true
+                let _ = pipewire.get_volume_for_sink(sink_name);
+                self.ui_state.system_available[i] = true;
+            }
 
-        // Check app availability
-        for i in 0..self.ui_state.app_fader_labels.len() {
-            let app_name = &self.ui_state.app_fader_labels[i].1;
-            // For apps, we need to check if they appear in the pactl list
-            let is_available = self.pipewire.is_app_available(app_name);
-            self.ui_state.app_available[i] = is_available;
+            // Check app availability
+            for i in 0..self.ui_state.app_fader_labels.len() {
+                let app_name = &self.ui_state.app_fader_labels[i].1;
+                // For apps, we need to check if they appear in the pactl list
+                let is_available = pipewire.is_app_available(app_name);
+                self.ui_state.app_available[i] = is_available;
+            }
         }
     }
 }

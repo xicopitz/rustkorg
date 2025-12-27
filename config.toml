@@ -45,14 +45,14 @@ window_height = 600
 theme = "default"  # default, dark, light
 
 # Show console by default
-show_console = false
+show_console = true
 
 # Max console messages to keep
-max_console_lines = 1000
+max_console_lines = 50
 
 [logging]
 # Enable or disable logging globally
-enabled = false
+enabled = true
 
 # Log level: off, error, warn, info, debug, trace
 log_level = "info"

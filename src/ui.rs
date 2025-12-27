@@ -19,6 +19,7 @@ pub struct UiState {
     pub app_muted_volume: Vec<u8>,  // Store previous volume when muted
     pub app_available: Vec<bool>,  // Track if app is currently available
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
+    max_console_lines: usize,  // Max number of console messages to keep
 }
 
 // Dark theme color palette
@@ -42,11 +43,11 @@ mod theme {
 }
 
 impl UiState {
-    pub fn new(system_labels: Vec<(u8, String)>, app_labels: Vec<(u8, String)>) -> Self {
+    pub fn new(system_labels: Vec<(u8, String)>, app_labels: Vec<(u8, String)>, show_console: bool, max_console_lines: usize) -> Self {
         let system_count = system_labels.len();
         let app_count = app_labels.len();
         Self {
-            selected_tab: Tab::Control,
+            selected_tab: if show_console { Tab::Console } else { Tab::Control },
             system_fader_values: vec![0; system_count],
             system_fader_labels: system_labels,
             system_muted: vec![false; system_count],
@@ -57,7 +58,8 @@ impl UiState {
             app_muted: vec![false; app_count],
             app_muted_volume: vec![0; app_count],
             app_available: vec![true; app_count],
-            console_output: Vec::with_capacity(30),
+            console_output: Vec::with_capacity(max_console_lines),
+            max_console_lines,
         }
     }
 
@@ -65,9 +67,9 @@ impl UiState {
         let now = chrono::Local::now();
         self.console_output.push((message, now));
         
-        // Keep only last 30 messages for display
-        if self.console_output.len() > 30 {
-            self.console_output.drain(0..self.console_output.len() - 30);
+        // Keep only last max_console_lines messages
+        if self.console_output.len() > self.max_console_lines {
+            self.console_output.drain(0..self.console_output.len() - self.max_console_lines);
         }
     }
 
@@ -347,10 +349,11 @@ impl UiState {
 
     pub fn render_console_tab(&mut self, ctx: &Context) {
         CentralPanel::default()
-            .frame(Frame::default().fill(theme::BG_PRIMARY))
+            .frame(Frame::default()
+                .fill(theme::BG_PRIMARY)
+                .inner_margin(Margin { left: 12, right: 12, top: 8, bottom: 12 }))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add_space(8.0);
                     ui.label(RichText::new("📋 Console Output")
                         .strong()
                         .size(16.0)
@@ -359,28 +362,30 @@ impl UiState {
 
                 ui.add_space(8.0);
                 ui.separator();
+                ui.add_space(8.0);
 
-                // Console output with scrolling
-                ScrollArea::vertical()
-                    .auto_shrink([false; 2])
-                    .stick_to_bottom(true)
+                // Console box frame
+                Frame::default()
+                    .fill(theme::BG_SECONDARY)
+                    .stroke(Stroke::new(1.0, theme::BORDER))
+                    .inner_margin(Margin::same(8))
+                    .corner_radius(CornerRadius::same(4))
                     .show(ui, |ui| {
-                        Frame::default()
-                            .fill(theme::BG_SECONDARY)
-                            .stroke(Stroke::new(1.0, theme::BORDER))
-                            .inner_margin(Margin::same(8))
-                            .corner_radius(CornerRadius::same(4))
+                        // Vertical scroll for logs
+                        ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .stick_to_bottom(true)
                             .show(ui, |ui| {
-                                ui.style_mut().spacing.item_spacing.y = 2.0;
+                                ui.set_width(ui.available_width());
+                                ui.style_mut().spacing.item_spacing.y = 4.0;
                                 
-                                let start_index = self.console_output.len().saturating_sub(30);
-                                for (message, timestamp) in &self.console_output[start_index..] {
+                                // Show all available messages vertically
+                                for (message, timestamp) in &self.console_output {
                                     ui.horizontal(|ui| {
-                                        ui.label(RichText::new(format!("{}", timestamp.format("%H:%M:%S")))
+                                        ui.label(RichText::new(format!("[{}]", timestamp.format("%H:%M:%S")))
                                             .color(theme::ACCENT_BLUE)
-                                            .monospace()
-                                            .size(10.0));
-                                        ui.separator();
+                                            .size(10.0)
+                                            .monospace());
                                         ui.label(RichText::new(message)
                                             .color(theme::TEXT_PRIMARY)
                                             .size(11.0));

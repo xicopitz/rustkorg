@@ -88,6 +88,7 @@ impl PipeWireController {
         }
         // Use pactl to find and set the volume for a specific application
         let app_name_lower = app_name.to_lowercase();
+        let normalized_config = normalize_app_name(&app_name_lower);
         
         if let Ok(output) = Command::new("pactl")
             .args(&["list", "sink-inputs"])
@@ -99,9 +100,6 @@ impl PipeWireController {
                 // First pass: look for exact matches or close matches
                 for (i, line) in lines.iter().enumerate() {
                     let line_lower = line.to_lowercase();
-                    
-                    // Normalize app names for better matching
-                    let normalized_config = normalize_app_name(&app_name_lower);
                     let normalized_line = normalize_app_name(&line_lower);
                     
                     // Check for application.name or application.process.binary fields
@@ -127,7 +125,7 @@ impl PipeWireController {
                     }
                 }
                 
-                eprintln!("App '{}' not found in sink inputs (tried matching: '{}')", app_name, normalize_app_name(&app_name_lower));
+                eprintln!("App '{}' not found in sink inputs (tried matching: '{}')", app_name, normalized_config);
             }
         }
         
@@ -162,6 +160,7 @@ impl PipeWireController {
     fn fetch_app_volume(app_name: &str) -> u8 {
         // Try to get the current volume for an application
         let app_name_lower = app_name.to_lowercase();
+        let normalized_config = normalize_app_name(&app_name_lower);
         
         if let Ok(output) = Command::new("pactl")
             .args(&["list", "sink-inputs"])
@@ -169,9 +168,6 @@ impl PipeWireController {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 let lines: Vec<&str> = text.lines().collect();
-                
-                // Normalize app names for better matching
-                let normalized_config = normalize_app_name(&app_name_lower);
                 
                 // Parse the sink-inputs to find the one matching the app name
                 for (i, line) in lines.iter().enumerate() {
@@ -205,19 +201,16 @@ impl PipeWireController {
     pub fn is_app_available(&self, app_name: &str) -> bool {
         // Check if an application is currently available (has an active sink input)
         let app_name_lower = app_name.to_lowercase();
+        let normalized_config = normalize_app_name(&app_name_lower);
         
         if let Ok(output) = Command::new("pactl")
             .args(&["list", "sink-inputs"])
             .output() {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
-                let lines: Vec<&str> = text.lines().collect();
-                
-                // Normalize app name for better matching
-                let normalized_config = normalize_app_name(&app_name_lower);
                 
                 // Parse the sink-inputs to find one matching the app name
-                for line in lines {
+                for line in text.lines() {
                     let line_lower = line.to_lowercase();
                     let normalized_line = normalize_app_name(&line_lower);
                     
@@ -235,8 +228,8 @@ impl PipeWireController {
     }
 }
 
-// Helper function to normalize application names for matching (zero-copy where possible)
-// Converts "google chrome" -> "chrome", "google-chrome" -> "chrome", "chromium" -> "chrome", etc.
+// Helper function to normalize application names for matching
+// Converts "google chrome" -> "chrome", "google-chrome" -> "chrome", etc.
 #[inline]
 fn normalize_app_name(name: &str) -> String {
     name

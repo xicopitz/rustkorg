@@ -7,10 +7,6 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy)]
 pub enum MidiMessage {
     ControlChange { cc: u8, value: u8 },
-    #[allow(dead_code)]
-    ButtonPressed { button_id: usize },
-    #[allow(dead_code)]
-    ButtonReleased { button_id: usize },
 }
 
 pub struct MidiListener {
@@ -106,8 +102,6 @@ impl MidiListener {
                     .unwrap_or(false)
             })
             .ok_or_else(|| anyhow!("nanoKontrol2 device not found"))?;
-
-        let _port_name = input.port_name(&ports[port_index])?;
 
         // Create a simple callback that logs events
         let tx_clone = tx.clone();
