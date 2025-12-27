@@ -43,11 +43,11 @@ mod theme {
 }
 
 impl UiState {
-    pub fn new(system_labels: Vec<(u8, String)>, app_labels: Vec<(u8, String)>, show_console: bool, max_console_lines: usize) -> Self {
+    pub fn new(system_labels: Vec<(u8, String)>, app_labels: Vec<(u8, String)>, _show_console: bool, max_console_lines: usize) -> Self {
         let system_count = system_labels.len();
         let app_count = app_labels.len();
         Self {
-            selected_tab: if show_console { Tab::Console } else { Tab::Control },
+            selected_tab: Tab::Control,
             system_fader_values: vec![0; system_count],
             system_fader_labels: system_labels,
             system_muted: vec![false; system_count],

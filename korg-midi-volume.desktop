@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=nanoKontrol2 Volume Controller
+Comment=MIDI volume controller for nanoKONTROL2
+Exec=/usr/local/bin/korg-midi-volume
+Icon=korg-midi-volume
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Mixer;
+StartupWMClass=korg-midi-volume

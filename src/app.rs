@@ -32,8 +32,11 @@ pub struct MidiVolumeApp {
 
 impl MidiVolumeApp {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        // Load configuration
-        let config = Config::load("config.toml")
+        // Load configuration with fallback
+        let config = Config::load_with_fallback(
+            "config.toml",
+            "~/.bin/audio/nanokontrol2/config.toml"
+        )
             .unwrap_or_else(|e| {
                 eprintln!("⚠️  Failed to load config.toml: {}", e);
                 eprintln!("Using default configuration");

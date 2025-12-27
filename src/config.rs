@@ -57,9 +57,17 @@ pub struct LoggingConfig {
 }
 
 impl Config {
-    pub fn load(path: &str) -> Result<Self> {
-        let content = fs::read_to_string(path)
-            .with_context(|| format!("Failed to read config file: {}", path))?;
+    pub fn load_with_fallback(primary: &str, fallback: &str) -> Result<Self> {
+        // Try primary path first
+        if let Ok(content) = fs::read_to_string(primary) {
+            return toml::from_str(&content)
+                .with_context(|| format!("Failed to parse config from: {}", primary));
+        }
+        
+        // If primary fails, try fallback path
+        let fallback_expanded = shellexpand::tilde(fallback).to_string();
+        let content = fs::read_to_string(&fallback_expanded)
+            .with_context(|| format!("Failed to read config from primary ({}) or fallback ({})", primary, fallback_expanded))?;
         toml::from_str(&content)
             .context("Failed to parse config.toml")
     }

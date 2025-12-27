@@ -9,8 +9,11 @@ use app::MidiVolumeApp;
 use config::Config;
 
 fn main() -> Result<()> {
-    // Load config to check if logging is enabled
-    let config = Config::load("config.toml").unwrap_or_else(|_| Config::default());
+    // Load config with fallback
+    let config = Config::load_with_fallback(
+        "config.toml",
+        "~/.bin/audio/nanokontrol2/config.toml"
+    ).unwrap_or_else(|_| Config::default());
     
     // Only initialize logging if enabled in config
     if config.logging.enabled.unwrap_or(true) {

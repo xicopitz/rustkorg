@@ -15,6 +15,7 @@ env_logger = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 toml = "0.8"
 libpulse-binding = "2.28"
+shellexpand = "3.0"
 
 [profile.release]
 opt-level = 3
