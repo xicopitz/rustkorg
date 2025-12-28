@@ -117,7 +117,17 @@ impl MidiVolumeApp {
         };
 
         let mut app = MidiVolumeApp {
-            ui_state: UiState::new(sink_labels.clone(), app_labels.clone(), show_console, max_console_lines),
+            ui_state: UiState::new(
+                sink_labels.clone(), 
+                app_labels.clone(), 
+                show_console, 
+                max_console_lines,
+                false,  // enable_tray
+                false,  // close_to_tray
+                false,  // start_minimized
+                "config.toml".to_string(),  // config_path
+                &config,
+            ),
             midi_rx: rx,
             _midi_listener: listener,
             midi_output,
@@ -464,6 +474,94 @@ impl MidiVolumeApp {
             }
         }
     }
+    
+    fn save_settings(&mut self) {
+        // Create config from UI state
+        let config = Config::from_ui_state(
+            &self.ui_state.cfg_sinks,
+            &self.ui_state.cfg_applications,
+            &self.ui_state.cfg_mute_buttons,
+            self.ui_state.cfg_use_pipewire,
+            &self.ui_state.cfg_default_sink,
+            &self.ui_state.cfg_volume_control_mode,
+            &self.ui_state.cfg_volume_curve,
+            self.ui_state.cfg_debounce_ms,
+            self.ui_state.cfg_applications_sink_search,
+            self.ui_state.cfg_window_width,
+            self.ui_state.cfg_window_height,
+            &self.ui_state.cfg_theme,
+            self.ui_state.cfg_show_console,
+            self.ui_state.cfg_max_console_lines,
+            self.ui_state.cfg_logging_enabled,
+            &self.ui_state.cfg_log_level,
+            self.ui_state.cfg_timestamps,
+            self.ui_state.cfg_log_fader_events,
+            self.ui_state.cfg_log_device_info,
+        );
+        
+        // Save to file
+        match config.save_to_file(&self.ui_state.config_path) {
+            Ok(()) => {
+                self.ui_state.settings_dirty = false;
+                self.ui_state.settings_save_message = Some((
+                    "SUCCESS: Settings saved".to_string(),
+                    std::time::Instant::now()
+                ));
+                
+                // Reload config from file
+                if let Ok(reloaded_config) = Config::load_with_fallback(
+                    &self.ui_state.config_path,
+                    "~/.bin/audio/nanokontrol2/config.toml"
+                ) {
+                    // Update runtime values from reloaded config
+                    self.debounce_ms = reloaded_config.audio.debounce_ms.unwrap_or(0);
+                    self.applications_sink_search_interval_secs = reloaded_config.audio.applications_sink_search.unwrap_or(10);
+                    self.logging_enabled = reloaded_config.logging.enabled.unwrap_or(true);
+                    
+                    // Reload sink and app mappings
+                    self.cc_mapping = reloaded_config.get_cc_mapping();
+                    let sink_labels = reloaded_config.get_sink_labels();
+                    let app_labels = reloaded_config.get_app_labels();
+                    
+                    // Rebuild CC type mappings
+                    self.cc_types.clear();
+                    for (cc, _) in &sink_labels {
+                        self.cc_types.insert(*cc, true);
+                    }
+                    for (cc, _) in &app_labels {
+                        self.cc_types.insert(*cc, false);
+                    }
+                    
+                    // Rebuild CC to UI index mappings
+                    self.cc_to_sink_index.clear();
+                    for (i, (cc, _)) in sink_labels.iter().enumerate() {
+                        self.cc_to_sink_index.insert(*cc, i);
+                    }
+                    self.cc_to_app_index.clear();
+                    for (i, (cc, _)) in app_labels.iter().enumerate() {
+                        self.cc_to_app_index.insert(*cc, i);
+                    }
+                    
+                    // Reload mute button mappings
+                    self.mute_button_mapping = reloaded_config.get_mute_button_mappings();
+                }
+                
+                if self.logging_enabled {
+                    self.ui_state.add_console_message("Settings saved and reloaded from config.toml".to_string());
+                }
+            }
+            Err(e) => {
+                self.ui_state.settings_save_message = Some((
+                    format!("ERROR: {}", e),
+                    std::time::Instant::now()
+                ));
+                
+                if self.logging_enabled {
+                    self.ui_state.add_console_message(format!("Error saving settings: {}", e));
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for MidiVolumeApp {
@@ -481,6 +579,14 @@ impl eframe::App for MidiVolumeApp {
             crate::ui::Tab::Control => self.ui_state.render_faders_tab(ctx),
             crate::ui::Tab::Console => {
                 self.ui_state.render_console_tab(ctx);
+                Vec::new()
+            }
+            crate::ui::Tab::Settings => {
+                let settings_changed = self.ui_state.render_settings_tab(ctx, false);
+                if settings_changed && self.ui_state.settings_dirty {
+                    // Save settings to config file
+                    self.save_settings();
+                }
                 Vec::new()
             }
         };

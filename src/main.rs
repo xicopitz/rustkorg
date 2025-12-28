@@ -3,6 +3,7 @@ mod config;
 mod midi;
 mod pipewire_control;
 mod ui;
+pub mod panels;
 
 use anyhow::Result;
 use app::MidiVolumeApp;

@@ -4,8 +4,8 @@
 [midi_controls.sinks]
 # Map MIDI CC numbers to audio sinks (faders)
 # Use CC numbers 0-31 for sink volume controls
-cc_0 = "master_sink"  # CC0 controls default sink
-cc_1 = "comms_sink"   # CC1 controls communications sink 
+cc_0 = "master_sink"
+cc_1 = "comms_sink"
 
 [midi_controls.applications]
 # Map MIDI CC numbers to application names
@@ -16,10 +16,8 @@ cc_16 = "chrome"
 # Map mute button CC numbers to the CC number of the fader they should mute
 # Format: cc_BUTTON_CC = FADER_CC_NUMBER (where FADER_CC_NUMBER is an integer)
 # Example: cc_64 = 0 means CC64 button mutes the CC0 fader
-# On nanoKontrol2, buttons send value 127 when pressed, 0 when released
-# Only CC > 0 triggers mute toggle (to avoid releasing the button from unmuting)
-cc_48 = 0  # Button 1 mutes CC0 fader
-cc_49 = 1  # Button 2 mutes CC1 fader
+cc_48 = 0
+cc_49 = 1
 
 [audio]
 # PipeWire settings
@@ -35,8 +33,10 @@ volume_control_mode = "pipewire-api"
 volume_curve = "linear"
 
 # Debounce MIDI events (ms) to prevent excessive updates and phantom inputs
-# Set to 0 for maximum responsiveness (though MIDI sends events relatively infrequently)
 debounce_ms = 0
+
+# Interval in seconds to search for application audio sinks
+applications_sink_search = 10
 
 [ui]
 # UI settings
@@ -48,7 +48,7 @@ theme = "default"  # default, dark, light
 show_console = true
 
 # Max console messages to keep
-max_console_lines = 50
+max_console_lines = 20
 
 [logging]
 # Enable or disable logging globally

@@ -177,3 +177,222 @@ impl Default for Config {
         }
     }
 }
+
+impl Config {
+    /// Save the configuration to a TOML file
+    pub fn save_to_file(&self, path: &str) -> Result<()> {
+        let toml_string = self.to_toml_string()?;
+        fs::write(path, toml_string)
+            .with_context(|| format!("Failed to write config to: {}", path))?;
+        Ok(())
+    }
+    
+    /// Convert config to a formatted TOML string with comments
+    pub fn to_toml_string(&self) -> Result<String> {
+        let mut output = String::new();
+        
+        // Header comment
+        output.push_str("# nanoKontrol2 MIDI Volume Controller Configuration\n");
+        output.push_str("# This file allows you to customize MIDI CC to audio target mappings\n\n");
+        
+        // MIDI Controls - Sinks
+        output.push_str("[midi_controls.sinks]\n");
+        output.push_str("# Map MIDI CC numbers to audio sinks (faders)\n");
+        output.push_str("# Use CC numbers 0-31 for sink volume controls\n");
+        let mut sink_entries: Vec<_> = self.midi_controls.sinks.iter().collect();
+        sink_entries.sort_by(|a, b| {
+            let a_num = a.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            let b_num = b.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            a_num.cmp(&b_num)
+        });
+        for (key, value) in sink_entries {
+            output.push_str(&format!("{} = \"{}\"\n", key, value));
+        }
+        output.push('\n');
+        
+        // MIDI Controls - Applications
+        output.push_str("[midi_controls.applications]\n");
+        output.push_str("# Map MIDI CC numbers to application names\n");
+        output.push_str("# Use CC numbers 32-63 or 16-31 for app volume controls\n");
+        let mut app_entries: Vec<_> = self.midi_controls.applications.iter().collect();
+        app_entries.sort_by(|a, b| {
+            let a_num = a.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            let b_num = b.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            a_num.cmp(&b_num)
+        });
+        for (key, value) in app_entries {
+            output.push_str(&format!("{} = \"{}\"\n", key, value));
+        }
+        output.push('\n');
+        
+        // MIDI Controls - Mute Buttons
+        output.push_str("[midi_controls.mute_buttons]\n");
+        output.push_str("# Map mute button CC numbers to the CC number of the fader they should mute\n");
+        output.push_str("# Format: cc_BUTTON_CC = FADER_CC_NUMBER (where FADER_CC_NUMBER is an integer)\n");
+        output.push_str("# Example: cc_64 = 0 means CC64 button mutes the CC0 fader\n");
+        let mut mute_entries: Vec<_> = self.midi_controls.mute_buttons.iter().collect();
+        mute_entries.sort_by(|a, b| {
+            let a_num = a.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            let b_num = b.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            a_num.cmp(&b_num)
+        });
+        for (key, value) in mute_entries {
+            output.push_str(&format!("{} = {}\n", key, value));
+        }
+        output.push('\n');
+        
+        // Audio section
+        output.push_str("[audio]\n");
+        output.push_str("# PipeWire settings\n");
+        if let Some(use_pipewire) = self.audio.use_pipewire {
+            output.push_str(&format!("use_pipewire = {}\n", use_pipewire));
+        }
+        if let Some(ref default_sink) = self.audio.default_sink {
+            output.push_str(&format!("default_sink = \"{}\"\n", default_sink));
+        }
+        output.push('\n');
+        output.push_str("# Volume control mode:\n");
+        output.push_str("# \"pw-volume\"     - Use pw-volume command (default, simple)\n");
+        output.push_str("# \"pipewire-api\"  - Use PipeWire Rust API (requires libpipewire-dev)\n");
+        if let Some(ref mode) = self.audio.volume_control_mode {
+            output.push_str(&format!("volume_control_mode = \"{}\"\n", mode));
+        }
+        output.push('\n');
+        output.push_str("# Volume curve (linear/exponential)\n");
+        if let Some(ref curve) = self.audio.volume_curve {
+            output.push_str(&format!("volume_curve = \"{}\"\n", curve));
+        }
+        output.push('\n');
+        output.push_str("# Debounce MIDI events (ms) to prevent excessive updates and phantom inputs\n");
+        if let Some(debounce) = self.audio.debounce_ms {
+            output.push_str(&format!("debounce_ms = {}\n", debounce));
+        }
+        output.push('\n');
+        output.push_str("# Interval in seconds to search for application audio sinks\n");
+        if let Some(search) = self.audio.applications_sink_search {
+            output.push_str(&format!("applications_sink_search = {}\n", search));
+        }
+        output.push('\n');
+        
+        // UI section
+        output.push_str("[ui]\n");
+        output.push_str("# UI settings\n");
+        if let Some(width) = self.ui.window_width {
+            output.push_str(&format!("window_width = {}\n", width));
+        }
+        if let Some(height) = self.ui.window_height {
+            output.push_str(&format!("window_height = {}\n", height));
+        }
+        if let Some(ref theme) = self.ui.theme {
+            output.push_str(&format!("theme = \"{}\"  # default, dark, light\n", theme));
+        }
+        output.push('\n');
+        output.push_str("# Show console by default\n");
+        if let Some(show) = self.ui.show_console {
+            output.push_str(&format!("show_console = {}\n", show));
+        }
+        output.push('\n');
+        output.push_str("# Max console messages to keep\n");
+        if let Some(lines) = self.ui.max_console_lines {
+            output.push_str(&format!("max_console_lines = {}\n", lines));
+        }
+        output.push('\n');
+        
+        // Logging section
+        output.push_str("[logging]\n");
+        output.push_str("# Enable or disable logging globally\n");
+        if let Some(enabled) = self.logging.enabled {
+            output.push_str(&format!("enabled = {}\n", enabled));
+        }
+        output.push('\n');
+        output.push_str("# Log level: off, error, warn, info, debug, trace\n");
+        if let Some(ref level) = self.logging.log_level {
+            output.push_str(&format!("log_level = \"{}\"\n", level));
+        }
+        output.push('\n');
+        output.push_str("# Show timestamps in console\n");
+        if let Some(timestamps) = self.logging.timestamps {
+            output.push_str(&format!("timestamps = {}\n", timestamps));
+        }
+        output.push('\n');
+        output.push_str("# Show fader movements in console\n");
+        if let Some(fader) = self.logging.log_fader_events {
+            output.push_str(&format!("log_fader_events = {}\n", fader));
+        }
+        output.push('\n');
+        output.push_str("# Show MIDI device info at startup\n");
+        if let Some(device) = self.logging.log_device_info {
+            output.push_str(&format!("log_device_info = {}\n", device));
+        }
+        
+        Ok(output)
+    }
+    
+    /// Create a Config from UI state values
+    pub fn from_ui_state(
+        sinks: &[(u8, String)],
+        applications: &[(u8, String)],
+        mute_buttons: &[(u8, u8)],
+        use_pipewire: bool,
+        default_sink: &str,
+        volume_control_mode: &str,
+        volume_curve: &str,
+        debounce_ms: u32,
+        applications_sink_search: u64,
+        window_width: u32,
+        window_height: u32,
+        theme: &str,
+        show_console: bool,
+        max_console_lines: usize,
+        logging_enabled: bool,
+        log_level: &str,
+        timestamps: bool,
+        log_fader_events: bool,
+        log_device_info: bool,
+    ) -> Self {
+        let mut sinks_map = HashMap::new();
+        for (cc, name) in sinks {
+            sinks_map.insert(format!("cc_{}", cc), name.clone());
+        }
+        
+        let mut apps_map = HashMap::new();
+        for (cc, name) in applications {
+            apps_map.insert(format!("cc_{}", cc), name.clone());
+        }
+        
+        let mut mute_map = HashMap::new();
+        for (button_cc, fader_cc) in mute_buttons {
+            mute_map.insert(format!("cc_{}", button_cc), *fader_cc);
+        }
+        
+        Config {
+            midi_controls: MidiControlsConfig {
+                sinks: sinks_map,
+                applications: apps_map,
+                mute_buttons: mute_map,
+            },
+            audio: AudioConfig {
+                use_pipewire: Some(use_pipewire),
+                default_sink: Some(default_sink.to_string()),
+                volume_control_mode: Some(volume_control_mode.to_string()),
+                volume_curve: Some(volume_curve.to_string()),
+                debounce_ms: Some(debounce_ms),
+                applications_sink_search: Some(applications_sink_search),
+            },
+            ui: UiConfig {
+                window_width: Some(window_width),
+                window_height: Some(window_height),
+                theme: Some(theme.to_string()),
+                show_console: Some(show_console),
+                max_console_lines: Some(max_console_lines),
+            },
+            logging: LoggingConfig {
+                enabled: Some(logging_enabled),
+                log_level: Some(log_level.to_string()),
+                timestamps: Some(timestamps),
+                log_fader_events: Some(log_fader_events),
+                log_device_info: Some(log_device_info),
+            },
+        }
+    }
+}
