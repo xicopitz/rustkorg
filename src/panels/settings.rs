@@ -2,7 +2,7 @@ use egui::{CentralPanel, Context, Frame, RichText, ScrollArea, Stroke, CornerRad
 use crate::ui::UiState;
 use super::theme;
 
-pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, tray_functional: bool) -> bool {
+pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_functional: bool) -> bool {
     let mut settings_changed = false;
     
     CentralPanel::default()
