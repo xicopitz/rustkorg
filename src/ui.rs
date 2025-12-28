@@ -182,7 +182,7 @@ impl UiState {
                     // Control tab
                     if ui
                         .selectable_label(self.selected_tab == Tab::Control, 
-                            RichText::new("🎚 Control").size(14.0))
+                            RichText::new("🔈 Control").size(14.0))
                         .clicked()
                     {
                         self.selected_tab = Tab::Control;
