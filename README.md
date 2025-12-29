@@ -4,9 +4,9 @@ A Rust application that allows you to control PipeWire audio volume using faders
 
 ## Screenshots
 
-![Control Panel](image1.png)
-![Settings Panel](image2.png)
-![Console Panel](image3.png)
+![Control Panel](images/image1.png)
+![Settings Panel](images/image2.png)
+![Console Panel](images/image3.png)
 
 ## Features
 
