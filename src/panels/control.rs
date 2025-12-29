@@ -169,9 +169,23 @@ fn render_fader_with_mute(
                     
                     ui.add_space(8.0);
                     
-                    // Custom slider styling
-                    ui.style_mut().visuals.selection.bg_fill = fader_color;
-                    ui.style_mut().visuals.widgets.active.bg_fill = fader_color;
+                    // Custom slider styling with bright highlight and visible border
+                    let slider_handle_color = if is_muted {
+                        Color32::from_rgb(150, 150, 160)
+                    } else {
+                        Color32::from_rgb(255, 255, 255)
+                    };
+                    
+                    // Set slider colors
+                    ui.style_mut().visuals.selection.bg_fill = slider_handle_color;
+                    ui.style_mut().visuals.widgets.active.bg_fill = slider_handle_color;
+                    ui.style_mut().visuals.widgets.hovered.bg_fill = slider_handle_color;
+                    ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(60, 60, 70);
+                    
+                    // Add border to slider widget
+                    ui.style_mut().visuals.selection.stroke = Stroke::new(2.0, slider_handle_color);
+                    ui.style_mut().visuals.widgets.active.bg_stroke = Stroke::new(2.0, slider_handle_color);
+                    ui.style_mut().visuals.widgets.hovered.bg_stroke = Stroke::new(2.0, slider_handle_color);
                     
                     ui.add(
                         Slider::new(fader_value, 0..=127)
