@@ -11,6 +11,7 @@ cc_1 = "comms_sink"
 # Map MIDI CC numbers to application names
 # Use CC numbers 32-63 or 16-31 for app volume controls
 cc_16 = "chrome"
+cc_17 = "Jellyfin"
 
 [midi_controls.mute_buttons]
 # Map mute button CC numbers to the CC number of the fader they should mute

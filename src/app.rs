@@ -523,6 +523,19 @@ impl MidiVolumeApp {
                     let sink_labels = reloaded_config.get_sink_labels();
                     let app_labels = reloaded_config.get_app_labels();
                     
+                    // Update UI state fader arrays to match new configuration
+                    self.ui_state.system_fader_labels = sink_labels.clone();
+                    self.ui_state.system_fader_values.resize(sink_labels.len(), 0);
+                    self.ui_state.system_muted.resize(sink_labels.len(), false);
+                    self.ui_state.system_muted_volume.resize(sink_labels.len(), 0);
+                    self.ui_state.system_available.resize(sink_labels.len(), true);
+                    
+                    self.ui_state.app_fader_labels = app_labels.clone();
+                    self.ui_state.app_fader_values.resize(app_labels.len(), 0);
+                    self.ui_state.app_muted.resize(app_labels.len(), false);
+                    self.ui_state.app_muted_volume.resize(app_labels.len(), 0);
+                    self.ui_state.app_available.resize(app_labels.len(), true);
+                    
                     // Rebuild CC type mappings
                     self.cc_types.clear();
                     for (cc, _) in &sink_labels {
