@@ -1,0 +1,115 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpulse-dev libudev-dev
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Create tarball
+        run: |
+          cd target/release
+          tar czf korg-midi-volume-linux-x64.tar.gz korg-midi-volume
+          cd ../..
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./target/release/korg-midi-volume-linux-x64.tar.gz
+          asset_name: korg-midi-volume-linux-x64.tar.gz
+          asset_content_type: application/gzip
+
+  build-linux-arm64:
+    name: Build Linux ARM64
+    runs-on: ubuntu-latest
+    needs: create-release
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install cross compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu pkg-config
+
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Create tarball
+        run: |
+          cd target/aarch64-unknown-linux-gnu/release
+          tar czf korg-midi-volume-linux-arm64.tar.gz korg-midi-volume
+          cd ../../..
+          mv target/aarch64-unknown-linux-gnu/release/korg-midi-volume-linux-arm64.tar.gz .
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./korg-midi-volume-linux-arm64.tar.gz
+          asset_name: korg-midi-volume-linux-arm64.tar.gz
+          asset_content_type: application/gzip
+
+  build-status:
+    name: Build Status
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-linux-arm64]
+    if: always()
+    steps:
+      - name: Check build status
+        run: |
+          if [ "${{ needs.build-linux.result }}" = "failure" ] || [ "${{ needs.build-linux-arm64.result }}" = "failure" ]; then
+            echo "One or more builds failed"
+            exit 1
+          fi
+          echo "All builds completed successfully"
