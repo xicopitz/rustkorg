@@ -38,7 +38,8 @@ impl MidiOutput {
             })
             .ok_or_else(|| anyhow!("nanoKontrol2 output not found"))?;
 
-        let conn = output.connect(&ports[port_index], "korg-volume-out")
+        let conn = output
+            .connect(&ports[port_index], "korg-volume-out")
             .map_err(|e| anyhow!("Failed to connect to nanoKontrol2 MIDI output: {}", e))?;
 
         Ok(MidiOutput {
@@ -105,18 +106,18 @@ impl MidiListener {
 
         // Create a simple callback that logs events
         let tx_clone = tx.clone();
-        let _conn = input.connect(
-            &ports[port_index],
-            "korg-volume",
-            move |_stamp: u64, data: &[u8], _: &mut ()| {
-                if data.len() >= 3 {
-                    let _ = Self::parse_message(data, &tx_clone);
-                }
-            },
-            (),
-        ).map_err(|e| {
-            anyhow!("Failed to connect to MIDI: {:?}", e)
-        })?;
+        let _conn = input
+            .connect(
+                &ports[port_index],
+                "korg-volume",
+                move |_stamp: u64, data: &[u8], _: &mut ()| {
+                    if data.len() >= 3 {
+                        let _ = Self::parse_message(data, &tx_clone);
+                    }
+                },
+                (),
+            )
+            .map_err(|e| anyhow!("Failed to connect to MIDI: {:?}", e))?;
 
         // Keep the connection alive indefinitely
         loop {
@@ -128,10 +129,13 @@ impl MidiListener {
         let status = data[0];
         let controller = data[1];
         let value = data[2];
-        
+
         if status == 0xB0 {
             // Control Change on channel 0 - send all CC messages
-            let msg = MidiMessage::ControlChange { cc: controller, value };
+            let msg = MidiMessage::ControlChange {
+                cc: controller,
+                value,
+            };
             let _ = tx.send(msg);
         }
 

@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -68,20 +68,23 @@ impl Config {
             return toml::from_str(&content)
                 .with_context(|| format!("Failed to parse config from: {}", primary));
         }
-        
+
         // If primary fails, try fallback path
         let fallback_expanded = shellexpand::tilde(fallback).to_string();
-        let content = fs::read_to_string(&fallback_expanded)
-            .with_context(|| format!("Failed to read config from primary ({}) or fallback ({})", primary, fallback_expanded))?;
-        toml::from_str(&content)
-            .context("Failed to parse config.toml")
+        let content = fs::read_to_string(&fallback_expanded).with_context(|| {
+            format!(
+                "Failed to read config from primary ({}) or fallback ({})",
+                primary, fallback_expanded
+            )
+        })?;
+        toml::from_str(&content).context("Failed to parse config.toml")
     }
 
     pub fn get_cc_mapping(&self) -> HashMap<u8, String> {
         // Parse CC controls from both sinks and applications
         let capacity = self.midi_controls.sinks.len() + self.midi_controls.applications.len();
         let mut mapping = HashMap::with_capacity(capacity);
-        
+
         // Add sink controls
         for (key, target) in &self.midi_controls.sinks {
             if let Some(cc_str) = key.strip_prefix("cc_") {
@@ -90,7 +93,7 @@ impl Config {
                 }
             }
         }
-        
+
         // Add application controls
         for (key, app_name) in &self.midi_controls.applications {
             if let Some(cc_str) = key.strip_prefix("cc_") {
@@ -99,10 +102,10 @@ impl Config {
                 }
             }
         }
-        
+
         mapping
     }
-    
+
     pub fn get_sink_labels(&self) -> Vec<(u8, String)> {
         // Returns sorted list of sink controls
         let mut controls = Vec::with_capacity(self.midi_controls.sinks.len());
@@ -143,20 +146,26 @@ impl Config {
         }
         mappings
     }
-
 }
 
 impl Default for Config {
     fn default() -> Self {
         let mut sinks = HashMap::new();
-        sinks.insert("cc_0".to_string(), "alsa_output.pci-0000_25_00.0.analog-stereo".to_string());
+        sinks.insert(
+            "cc_0".to_string(),
+            "alsa_output.pci-0000_25_00.0.analog-stereo".to_string(),
+        );
         sinks.insert("cc_1".to_string(), "comms_sink".to_string());
-        
+
         let applications = HashMap::new();
         let mute_buttons = HashMap::new();
-        
+
         Config {
-            midi_controls: MidiControlsConfig { sinks, applications, mute_buttons },
+            midi_controls: MidiControlsConfig {
+                sinks,
+                applications,
+                mute_buttons,
+            },
             audio: AudioConfig {
                 use_pipewire: Some(true),
                 default_sink: Some("alsa_output.pci-0000_25_00.0.analog-stereo".to_string()),
@@ -196,61 +205,83 @@ impl Config {
             .with_context(|| format!("Failed to write config to: {}", path))?;
         Ok(())
     }
-    
+
     /// Convert config to a formatted TOML string with comments
     pub fn to_toml_string(&self) -> Result<String> {
         let mut output = String::new();
-        
+
         // Header comment
         output.push_str("# nanoKontrol2 MIDI Volume Controller Configuration\n");
         output.push_str("# This file allows you to customize MIDI CC to audio target mappings\n\n");
-        
+
         // MIDI Controls - Sinks
         output.push_str("[midi_controls.sinks]\n");
         output.push_str("# Map MIDI CC numbers to audio sinks (faders)\n");
         output.push_str("# Use CC numbers 0-31 for sink volume controls\n");
         let mut sink_entries: Vec<_> = self.midi_controls.sinks.iter().collect();
         sink_entries.sort_by(|a, b| {
-            let a_num = a.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
-            let b_num = b.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            let a_num =
+                a.0.strip_prefix("cc_")
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(255);
+            let b_num =
+                b.0.strip_prefix("cc_")
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(255);
             a_num.cmp(&b_num)
         });
         for (key, value) in sink_entries {
             output.push_str(&format!("{} = \"{}\"\n", key, value));
         }
         output.push('\n');
-        
+
         // MIDI Controls - Applications
         output.push_str("[midi_controls.applications]\n");
         output.push_str("# Map MIDI CC numbers to application names\n");
         output.push_str("# Use CC numbers 32-63 or 16-31 for app volume controls\n");
         let mut app_entries: Vec<_> = self.midi_controls.applications.iter().collect();
         app_entries.sort_by(|a, b| {
-            let a_num = a.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
-            let b_num = b.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            let a_num =
+                a.0.strip_prefix("cc_")
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(255);
+            let b_num =
+                b.0.strip_prefix("cc_")
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(255);
             a_num.cmp(&b_num)
         });
         for (key, value) in app_entries {
             output.push_str(&format!("{} = \"{}\"\n", key, value));
         }
         output.push('\n');
-        
+
         // MIDI Controls - Mute Buttons
         output.push_str("[midi_controls.mute_buttons]\n");
-        output.push_str("# Map mute button CC numbers to the CC number of the fader they should mute\n");
-        output.push_str("# Format: cc_BUTTON_CC = FADER_CC_NUMBER (where FADER_CC_NUMBER is an integer)\n");
+        output.push_str(
+            "# Map mute button CC numbers to the CC number of the fader they should mute\n",
+        );
+        output.push_str(
+            "# Format: cc_BUTTON_CC = FADER_CC_NUMBER (where FADER_CC_NUMBER is an integer)\n",
+        );
         output.push_str("# Example: cc_64 = 0 means CC64 button mutes the CC0 fader\n");
         let mut mute_entries: Vec<_> = self.midi_controls.mute_buttons.iter().collect();
         mute_entries.sort_by(|a, b| {
-            let a_num = a.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
-            let b_num = b.0.strip_prefix("cc_").and_then(|s| s.parse::<u8>().ok()).unwrap_or(255);
+            let a_num =
+                a.0.strip_prefix("cc_")
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(255);
+            let b_num =
+                b.0.strip_prefix("cc_")
+                    .and_then(|s| s.parse::<u8>().ok())
+                    .unwrap_or(255);
             a_num.cmp(&b_num)
         });
         for (key, value) in mute_entries {
             output.push_str(&format!("{} = {}\n", key, value));
         }
         output.push('\n');
-        
+
         // Audio section
         output.push_str("[audio]\n");
         output.push_str("# PipeWire settings\n");
@@ -273,7 +304,9 @@ impl Config {
             output.push_str(&format!("volume_curve = \"{}\"\n", curve));
         }
         output.push('\n');
-        output.push_str("# Debounce MIDI events (ms) to prevent excessive updates and phantom inputs\n");
+        output.push_str(
+            "# Debounce MIDI events (ms) to prevent excessive updates and phantom inputs\n",
+        );
         if let Some(debounce) = self.audio.debounce_ms {
             output.push_str(&format!("debounce_ms = {}\n", debounce));
         }
@@ -283,7 +316,7 @@ impl Config {
             output.push_str(&format!("applications_sink_search = {}\n", search));
         }
         output.push('\n');
-        
+
         // UI section
         output.push_str("[ui]\n");
         output.push_str("# UI settings\n");
@@ -321,7 +354,7 @@ impl Config {
             output.push_str(&format!("spectrum_show_labels = {}\n", labels));
         }
         output.push('\n');
-        
+
         // Logging section
         output.push_str("[logging]\n");
         output.push_str("# Enable or disable logging globally\n");
@@ -348,10 +381,10 @@ impl Config {
         if let Some(device) = self.logging.log_device_info {
             output.push_str(&format!("log_device_info = {}\n", device));
         }
-        
+
         Ok(output)
     }
-    
+
     /// Create a Config from UI state values
     pub fn from_ui_state(
         sinks: &[(u8, String)],
@@ -383,17 +416,17 @@ impl Config {
         for (cc, name) in sinks {
             sinks_map.insert(format!("cc_{}", cc), name.clone());
         }
-        
+
         let mut apps_map = HashMap::new();
         for (cc, name) in applications {
             apps_map.insert(format!("cc_{}", cc), name.clone());
         }
-        
+
         let mut mute_map = HashMap::new();
         for (button_cc, fader_cc) in mute_buttons {
             mute_map.insert(format!("cc_{}", button_cc), *fader_cc);
         }
-        
+
         Config {
             midi_controls: MidiControlsConfig {
                 sinks: sinks_map,

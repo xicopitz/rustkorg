@@ -30,10 +30,14 @@ impl PipeWireController {
         if let Ok(mut cache) = self.sink_volume_cache.lock() {
             cache.remove(sink_name);
         }
-        
+
         // Use pactl to set sink volume directly
         Command::new("pactl")
-            .args(&["set-sink-volume", sink_name, &format!("{}%", volume_percent)])
+            .args(&[
+                "set-sink-volume",
+                sink_name,
+                &format!("{}%", volume_percent),
+            ])
             .output()?;
         Ok(())
     }
@@ -47,25 +51,29 @@ impl PipeWireController {
                 }
             }
         }
-        
+
         let result = Self::fetch_sink_volume(sink_name);
-        
+
         // Update cache
         if let Ok(mut cache) = self.sink_volume_cache.lock() {
-            cache.insert(sink_name.to_string(), CachedVolume {
-                value: result,
-                timestamp: Instant::now(),
-            });
+            cache.insert(
+                sink_name.to_string(),
+                CachedVolume {
+                    value: result,
+                    timestamp: Instant::now(),
+                },
+            );
         }
-        
+
         result
     }
-    
+
     #[inline]
     fn fetch_sink_volume(sink_name: &str) -> u8 {
         if let Ok(output) = Command::new("pactl")
             .args(&["get-sink-volume", sink_name])
-            .output() {
+            .output()
+        {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 // Parse output like "Volume: front-left: 65536 /  100% / 0.00 dB"
@@ -89,32 +97,41 @@ impl PipeWireController {
         // Use pactl to find and set the volume for a specific application
         let app_name_lower = app_name.to_lowercase();
         let normalized_config = normalize_app_name(&app_name_lower);
-        
+
         if let Ok(output) = Command::new("pactl")
             .args(&["list", "sink-inputs"])
-            .output() {
+            .output()
+        {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 let lines: Vec<&str> = text.lines().collect();
-                
+
                 // First pass: look for exact matches or close matches
                 for (i, line) in lines.iter().enumerate() {
                     let line_lower = line.to_lowercase();
                     let normalized_line = normalize_app_name(&line_lower);
-                    
+
                     // Check for application.name or application.process.binary fields
-                    if (line_lower.contains("application.name") && normalized_line.contains(&normalized_config))
-                        || (line_lower.contains("application.process.binary") && normalized_line.contains(&normalized_config))
-                        || normalized_line.contains(&normalized_config) {
+                    if (line_lower.contains("application.name")
+                        && normalized_line.contains(&normalized_config))
+                        || (line_lower.contains("application.process.binary")
+                            && normalized_line.contains(&normalized_config))
+                        || normalized_line.contains(&normalized_config)
+                    {
                         // Look backwards for the sink input index
                         for j in (0..=i).rev() {
                             if lines[j].starts_with("Sink Input #") {
                                 if let Some(index_str) = lines[j]
                                     .strip_prefix("Sink Input #")
-                                    .and_then(|s| s.split_whitespace().next()) {
+                                    .and_then(|s| s.split_whitespace().next())
+                                {
                                     if let Ok(_index) = index_str.parse::<u32>() {
                                         let _ = Command::new("pactl")
-                                            .args(&["set-sink-input-volume", index_str, &format!("{}%", volume_percent)])
+                                            .args(&[
+                                                "set-sink-input-volume",
+                                                index_str,
+                                                &format!("{}%", volume_percent),
+                                            ])
                                             .output();
                                         return Ok(());
                                     }
@@ -124,11 +141,14 @@ impl PipeWireController {
                         }
                     }
                 }
-                
-                eprintln!("App '{}' not found in sink inputs (tried matching: '{}')", app_name, normalized_config);
+
+                eprintln!(
+                    "App '{}' not found in sink inputs (tried matching: '{}')",
+                    app_name, normalized_config
+                );
             }
         }
-        
+
         // Fallback: silently ignore if app not found (it might not be playing audio)
         Ok(())
     }
@@ -142,42 +162,49 @@ impl PipeWireController {
                 }
             }
         }
-        
+
         let result = Self::fetch_app_volume(app_name);
-        
+
         // Update cache
         if let Ok(mut cache) = self.app_volume_cache.lock() {
-            cache.insert(app_name.to_string(), CachedVolume {
-                value: result,
-                timestamp: Instant::now(),
-            });
+            cache.insert(
+                app_name.to_string(),
+                CachedVolume {
+                    value: result,
+                    timestamp: Instant::now(),
+                },
+            );
         }
-        
+
         result
     }
-    
+
     #[inline]
     fn fetch_app_volume(app_name: &str) -> u8 {
         // Try to get the current volume for an application
         let app_name_lower = app_name.to_lowercase();
         let normalized_config = normalize_app_name(&app_name_lower);
-        
+
         if let Ok(output) = Command::new("pactl")
             .args(&["list", "sink-inputs"])
-            .output() {
+            .output()
+        {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
                 let lines: Vec<&str> = text.lines().collect();
-                
+
                 // Parse the sink-inputs to find the one matching the app name
                 for (i, line) in lines.iter().enumerate() {
                     let line_lower = line.to_lowercase();
                     let normalized_line = normalize_app_name(&line_lower);
-                    
+
                     // Check for application.name or application.process.binary fields
-                    if (line_lower.contains("application.name") && normalized_line.contains(&normalized_config))
-                        || (line_lower.contains("application.process.binary") && normalized_line.contains(&normalized_config))
-                        || normalized_line.contains(&normalized_config) {
+                    if (line_lower.contains("application.name")
+                        && normalized_line.contains(&normalized_config))
+                        || (line_lower.contains("application.process.binary")
+                            && normalized_line.contains(&normalized_config))
+                        || normalized_line.contains(&normalized_config)
+                    {
                         // Look forward for the volume information
                         for j in i..std::cmp::min(i + 20, lines.len()) {
                             if lines[j].contains("Volume:") {
@@ -194,7 +221,7 @@ impl PipeWireController {
                 }
             }
         }
-        
+
         50 // Default fallback
     }
 
@@ -202,28 +229,32 @@ impl PipeWireController {
         // Check if an application is currently available (has an active sink input)
         let app_name_lower = app_name.to_lowercase();
         let normalized_config = normalize_app_name(&app_name_lower);
-        
+
         if let Ok(output) = Command::new("pactl")
             .args(&["list", "sink-inputs"])
-            .output() {
+            .output()
+        {
             if output.status.success() {
                 let text = String::from_utf8_lossy(&output.stdout);
-                
+
                 // Parse the sink-inputs to find one matching the app name
                 for line in text.lines() {
                     let line_lower = line.to_lowercase();
                     let normalized_line = normalize_app_name(&line_lower);
-                    
+
                     // Check for application.name or application.process.binary fields
-                    if (line_lower.contains("application.name") && normalized_line.contains(&normalized_config))
-                        || (line_lower.contains("application.process.binary") && normalized_line.contains(&normalized_config))
-                        || normalized_line.contains(&normalized_config) {
+                    if (line_lower.contains("application.name")
+                        && normalized_line.contains(&normalized_config))
+                        || (line_lower.contains("application.process.binary")
+                            && normalized_line.contains(&normalized_config))
+                        || normalized_line.contains(&normalized_config)
+                    {
                         return true;
                     }
                 }
             }
         }
-        
+
         false
     }
 }
@@ -232,11 +263,9 @@ impl PipeWireController {
 // Converts "google chrome" -> "chrome", "google-chrome" -> "chrome", etc.
 #[inline]
 fn normalize_app_name(name: &str) -> String {
-    name
-        .replace("google-", "")
+    name.replace("google-", "")
         .replace("google ", "")
         .replace(" ", "")
         .replace("-", "")
         .replace("_", "")
 }
-
