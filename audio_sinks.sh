@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Physical audio output device
+# Physical audio output device (use pactl list short sinks to find your device)
 soundboard="alsa_output.pci-0000_25_00.0.analog-stereo"
 
 # Create virtual "Master Sink" for overall volume control
