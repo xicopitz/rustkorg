@@ -2,6 +2,7 @@ use crate::config::Config;
 use crate::midi::{MidiListener, MidiMessage, MidiOutput};
 use crate::pipewire_control::PipeWireController;
 use crate::ui::UiState;
+use crate::spectrum::SpectrumAnalyzer;
 use log::info;
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -28,6 +29,9 @@ pub struct MidiVolumeApp {
     logging_enabled: bool,  // Cached logging flag
     last_availability_check: Instant,  // Track last availability check time
     applications_sink_search_interval_secs: u64,  // Interval (in seconds) for checking app availability
+    spectrum_analyzer: SpectrumAnalyzer,  // Spectrum analyzer for visualizer
+    last_window_width: u32,  // Track previous window width for live resizing
+    last_window_height: u32,  // Track previous window height for live resizing
 }
 
 impl MidiVolumeApp {
@@ -116,6 +120,11 @@ impl MidiVolumeApp {
             }
         };
 
+        // Initialize spectrum analyzer
+        let default_sink = config.audio.default_sink.clone().unwrap_or_else(|| "master_sink".to_string());
+        let mut spectrum_analyzer = SpectrumAnalyzer::new();
+        spectrum_analyzer.start(&default_sink);
+
         let mut app = MidiVolumeApp {
             ui_state: UiState::new(
                 sink_labels.clone(), 
@@ -143,6 +152,9 @@ impl MidiVolumeApp {
             logging_enabled,
             last_availability_check: Instant::now(),
             applications_sink_search_interval_secs,
+            spectrum_analyzer,
+            last_window_width: config.ui.window_width.unwrap_or(1000),
+            last_window_height: config.ui.window_height.unwrap_or(800),
         };
 
         // Initialize UI fader values for sink controls
@@ -492,6 +504,10 @@ impl MidiVolumeApp {
             &self.ui_state.cfg_theme,
             self.ui_state.cfg_show_console,
             self.ui_state.cfg_max_console_lines,
+            self.ui_state.cfg_show_spectrum,
+            self.ui_state.cfg_spectrum_stereo_mode,
+            self.ui_state.cfg_spectrum_show_waterfall,
+            self.ui_state.cfg_spectrum_show_labels,
             self.ui_state.cfg_logging_enabled,
             &self.ui_state.cfg_log_level,
             self.ui_state.cfg_timestamps,
@@ -579,11 +595,27 @@ impl MidiVolumeApp {
 
 impl eframe::App for MidiVolumeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for window size changes and apply them
+        if self.last_window_width != self.ui_state.cfg_window_width || 
+           self.last_window_height != self.ui_state.cfg_window_height {
+            let new_size = egui::Vec2::new(
+                self.ui_state.cfg_window_width as f32,
+                self.ui_state.cfg_window_height as f32,
+            );
+            ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(new_size));
+            
+            self.last_window_width = self.ui_state.cfg_window_width;
+            self.last_window_height = self.ui_state.cfg_window_height;
+        }
+        
         // Process incoming MIDI messages immediately
         self.process_midi_messages();
 
         // Check audio availability every 10 seconds
         self.check_audio_availability();
+        
+        // Update spectrum data from analyzer
+        self.ui_state.spectrum_data = self.spectrum_analyzer.get_data();
 
         // Render UI
         self.ui_state.render_tabs(ctx);
@@ -604,6 +636,9 @@ impl eframe::App for MidiVolumeApp {
             }
         };
         
+        // Render MIDI UI modal if open
+        crate::panels::render_midi_ui_modal(&mut self.ui_state, ctx);
+        
         // Handle UI slider changes
         self.process_ui_slider_changes(changed_faders);
 
@@ -613,5 +648,12 @@ impl eframe::App for MidiVolumeApp {
         
         // Also request a repaint for the next frame to maintain responsiveness
         ctx.request_repaint_after(std::time::Duration::from_millis(16)); // ~60 FPS
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Save settings on app exit
+        if self.ui_state.settings_dirty {
+            self.save_settings();
+        }
     }
 }

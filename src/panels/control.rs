@@ -1,5 +1,6 @@
 use egui::*;
 use super::theme;
+use super::visualizer::render_spectrum_visualizer;
 
 pub fn render_faders_tab(ui_state: &mut crate::ui::UiState, ctx: &Context) -> Vec<(bool, usize, u8)> {
     let mut changed_faders = Vec::new();
@@ -17,27 +18,49 @@ pub fn render_faders_tab(ui_state: &mut crate::ui::UiState, ctx: &Context) -> Ve
                         .inner_margin(Margin { left: 20, right: 20, top: 8, bottom: 8 })
                         .show(ui, |ui| {
                             ui.set_width(ui.available_width());
+                            
+                    // Spectrum Visualizer Section
+                    if ui_state.cfg_show_spectrum {
+                        ui.add_space(16.0);
+                        render_spectrum_visualizer(
+                            ui, 
+                            &ui_state.spectrum_data, 
+                            &mut ui_state.visualizer_state,
+                            true,
+                            ui_state.cfg_spectrum_stereo_mode,
+                            ui_state.cfg_spectrum_show_waterfall,
+                            ui_state.cfg_spectrum_show_labels,
+                        );
+                        ui.add_space(8.0);
+                        ui.separator();
+                    }
+                            
                     // System/Sink Controls Section
                     if !ui_state.system_fader_values.is_empty() {
                         ui.add_space(16.0);
                         render_section_header(ui, "🔊 Audio Sinks", theme::ACCENT_BLUE);
                         ui.add_space(8.0);
                         
-                        for i in 0..ui_state.system_fader_values.len() {
-                            let is_muted = ui_state.system_muted[i];
-                            let is_available = ui_state.system_available[i];
-                            let old_value = ui_state.system_fader_values[i];
+                        for &display_idx in &ui_state.sink_display_order {
+                            // Skip if not visible
+                            if !ui_state.sink_visibility.get(display_idx).copied().unwrap_or(true) {
+                                continue;
+                            }
+                            
+                            let is_muted = ui_state.system_muted[display_idx];
+                            let is_available = ui_state.system_available[display_idx];
+                            let old_value = ui_state.system_fader_values[display_idx];
                             render_fader_with_mute(
                                 ui,
-                                &mut ui_state.system_fader_values[i],
-                                &ui_state.system_fader_labels[i].1,
-                                ui_state.system_fader_labels[i].0,
+                                &mut ui_state.system_fader_values[display_idx],
+                                &ui_state.system_fader_labels[display_idx].1,
+                                ui_state.system_fader_labels[display_idx].0,
                                 theme::ACCENT_BLUE,
                                 is_muted,
                                 is_available,
                             );
-                            if old_value != ui_state.system_fader_values[i] {
-                                changed_faders.push((true, i, ui_state.system_fader_values[i]));
+                            if old_value != ui_state.system_fader_values[display_idx] {
+                                changed_faders.push((true, display_idx, ui_state.system_fader_values[display_idx]));
                             }
                             ui.add_space(2.0);
                         }
@@ -52,21 +75,26 @@ pub fn render_faders_tab(ui_state: &mut crate::ui::UiState, ctx: &Context) -> Ve
                         render_section_header(ui, "🎵 Applications", theme::ACCENT_ORANGE);
                         ui.add_space(8.0);
                         
-                        for i in 0..ui_state.app_fader_values.len() {
-                            let is_muted = ui_state.app_muted[i];
-                            let is_available = ui_state.app_available[i];
-                            let old_value = ui_state.app_fader_values[i];
+                        for &display_idx in &ui_state.app_display_order {
+                            // Skip if not visible
+                            if !ui_state.app_visibility.get(display_idx).copied().unwrap_or(true) {
+                                continue;
+                            }
+                            
+                            let is_muted = ui_state.app_muted[display_idx];
+                            let is_available = ui_state.app_available[display_idx];
+                            let old_value = ui_state.app_fader_values[display_idx];
                             render_fader_with_mute(
                                 ui,
-                                &mut ui_state.app_fader_values[i],
-                                &ui_state.app_fader_labels[i].1,
-                                ui_state.app_fader_labels[i].0,
+                                &mut ui_state.app_fader_values[display_idx],
+                                &ui_state.app_fader_labels[display_idx].1,
+                                ui_state.app_fader_labels[display_idx].0,
                                 theme::ACCENT_ORANGE,
                                 is_muted,
                                 is_available,
                             );
-                            if old_value != ui_state.app_fader_values[i] {
-                                changed_faders.push((false, i, ui_state.app_fader_values[i]));
+                            if old_value != ui_state.app_fader_values[display_idx] {
+                                changed_faders.push((false, display_idx, ui_state.app_fader_values[display_idx]));
                             }
                             ui.add_space(12.0);
                         }
@@ -169,6 +197,13 @@ fn render_fader_with_mute(
                     
                     ui.add_space(8.0);
                     
+                    // Minus button
+                    if ui.button("−").clicked() {
+                        *fader_value = fader_value.saturating_sub(10);
+                    }
+                    
+                    ui.add_space(4.0);
+                    
                     // Custom slider styling with bright highlight and visible border
                     let slider_handle_color = if is_muted {
                         Color32::from_rgb(150, 150, 160)
@@ -192,6 +227,13 @@ fn render_fader_with_mute(
                             .show_value(false)
                             .text("")
                     );
+                    
+                    ui.add_space(4.0);
+                    
+                    // Plus button
+                    if ui.button("+").clicked() {
+                        *fader_value = fader_value.saturating_add(10);
+                    }
                 });
                 
                 ui.add_space(4.0);

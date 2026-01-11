@@ -4,6 +4,7 @@ mod midi;
 mod pipewire_control;
 mod ui;
 pub mod panels;
+pub mod spectrum;
 
 use anyhow::Result;
 use app::MidiVolumeApp;
@@ -28,9 +29,13 @@ fn main() -> Result<()> {
             .init();
     }
 
+    // Get window size from config with defaults
+    let window_width = config.ui.window_width.unwrap_or(1000) as f32;
+    let window_height = config.ui.window_height.unwrap_or(800) as f32;
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1000.0, 600.0]),
+            .with_inner_size([window_width, window_height]),
         ..Default::default()
     };
 

@@ -45,6 +45,10 @@ pub struct UiConfig {
     pub theme: Option<String>,
     pub show_console: Option<bool>,
     pub max_console_lines: Option<usize>,
+    pub show_spectrum: Option<bool>,
+    pub spectrum_stereo_mode: Option<bool>,
+    pub spectrum_show_waterfall: Option<bool>,
+    pub spectrum_show_labels: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,10 +166,14 @@ impl Default for Config {
             },
             ui: UiConfig {
                 window_width: Some(1000),
-                window_height: Some(600),
+                window_height: Some(800),
                 theme: Some("default".to_string()),
                 show_console: Some(false),
                 max_console_lines: Some(1000),
+                show_spectrum: Some(true),
+                spectrum_stereo_mode: Some(false),
+                spectrum_show_waterfall: Some(false),
+                spectrum_show_labels: Some(true),
             },
             logging: LoggingConfig {
                 enabled: Some(true),
@@ -297,6 +305,20 @@ impl Config {
             output.push_str(&format!("max_console_lines = {}\n", lines));
         }
         output.push('\n');
+        output.push_str("# Spectrum analyzer settings\n");
+        if let Some(show) = self.ui.show_spectrum {
+            output.push_str(&format!("show_spectrum = {}\n", show));
+        }
+        if let Some(stereo) = self.ui.spectrum_stereo_mode {
+            output.push_str(&format!("spectrum_stereo_mode = {}\n", stereo));
+        }
+        if let Some(waterfall) = self.ui.spectrum_show_waterfall {
+            output.push_str(&format!("spectrum_show_waterfall = {}\n", waterfall));
+        }
+        if let Some(labels) = self.ui.spectrum_show_labels {
+            output.push_str(&format!("spectrum_show_labels = {}\n", labels));
+        }
+        output.push('\n');
         
         // Logging section
         output.push_str("[logging]\n");
@@ -344,6 +366,10 @@ impl Config {
         theme: &str,
         show_console: bool,
         max_console_lines: usize,
+        show_spectrum: bool,
+        spectrum_stereo_mode: bool,
+        spectrum_show_waterfall: bool,
+        spectrum_show_labels: bool,
         logging_enabled: bool,
         log_level: &str,
         timestamps: bool,
@@ -385,6 +411,10 @@ impl Config {
                 theme: Some(theme.to_string()),
                 show_console: Some(show_console),
                 max_console_lines: Some(max_console_lines),
+                show_spectrum: Some(show_spectrum),
+                spectrum_stereo_mode: Some(spectrum_stereo_mode),
+                spectrum_show_waterfall: Some(spectrum_show_waterfall),
+                spectrum_show_labels: Some(spectrum_show_labels),
             },
             logging: LoggingConfig {
                 enabled: Some(logging_enabled),

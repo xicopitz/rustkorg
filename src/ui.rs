@@ -2,6 +2,8 @@ use egui::*;
 
 pub use crate::panels::{render_faders_tab, render_console_tab, render_settings_tab};
 pub use crate::panels::theme;
+use crate::spectrum::SpectrumData;
+use crate::panels::VisualizerState;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -66,6 +68,32 @@ pub struct UiState {
     pub new_app_name: String,
     pub new_mute_button_cc: String,
     pub new_mute_fader_cc: String,
+    pub window_width_str: String,
+    pub window_height_str: String,
+    
+    // Settings UI category selection
+    pub settings_category: u32,  // 0=MIDI, 1=Audio, 2=UI, 3=Logging, 4=Fader Display
+    
+    // MIDI UI modal state
+    pub show_midi_ui_modal: bool,
+    pub midi_ui_texture: Option<egui::TextureHandle>,
+    pub midi_ui_dimensions: Option<[f32; 2]>,  // Width and height of the image
+    
+    // Fader visibility and ordering
+    pub sink_visibility: Vec<bool>,  // Track which sinks are visible
+    pub sink_display_order: Vec<usize>,  // Track sink display order (indices into system_fader_labels)
+    pub app_visibility: Vec<bool>,  // Track which apps are visible
+    pub app_display_order: Vec<usize>,  // Track app display order (indices into app_fader_labels)
+    
+    // Spectrum analyzer state
+    pub spectrum_data: SpectrumData,
+    pub visualizer_state: VisualizerState,
+    
+    // UI config for spectrum visibility
+    pub cfg_show_spectrum: bool,
+    pub cfg_spectrum_stereo_mode: bool,  // true = stereo separate, false = combined
+    pub cfg_spectrum_show_waterfall: bool,
+    pub cfg_spectrum_show_labels: bool,
 }
 
 impl UiState {
@@ -108,7 +136,9 @@ impl UiState {
             cfg_debounce_ms: config.audio.debounce_ms.unwrap_or(100),
             cfg_applications_sink_search: config.audio.applications_sink_search.unwrap_or(10),
             cfg_window_width: config.ui.window_width.unwrap_or(1200),
-            cfg_window_height: config.ui.window_height.unwrap_or(600),
+            cfg_window_height: config.ui.window_height.unwrap_or(1000),
+            window_width_str: config.ui.window_width.unwrap_or(1200).to_string(),
+            window_height_str: config.ui.window_height.unwrap_or(1000).to_string(),
             cfg_theme: config.ui.theme.clone().unwrap_or_else(|| "default".to_string()),
             cfg_show_console: config.ui.show_console.unwrap_or(false),
             cfg_max_console_lines: config.ui.max_console_lines.unwrap_or(1000),
@@ -128,6 +158,20 @@ impl UiState {
             new_app_name: String::new(),
             new_mute_button_cc: String::new(),
             new_mute_fader_cc: String::new(),
+            settings_category: 0,
+            show_midi_ui_modal: false,
+            midi_ui_texture: None,
+            midi_ui_dimensions: None,
+            sink_visibility: vec![true; system_count],
+            sink_display_order: (0..system_count).collect(),
+            app_visibility: vec![true; app_count],
+            app_display_order: (0..app_count).collect(),
+            spectrum_data: SpectrumData::default(),
+            visualizer_state: VisualizerState::default(),
+            cfg_show_spectrum: config.ui.show_spectrum.unwrap_or(true),
+            cfg_spectrum_stereo_mode: config.ui.spectrum_stereo_mode.unwrap_or(false),
+            cfg_spectrum_show_waterfall: config.ui.spectrum_show_waterfall.unwrap_or(false),
+            cfg_spectrum_show_labels: config.ui.spectrum_show_labels.unwrap_or(true),
         }
     }
 

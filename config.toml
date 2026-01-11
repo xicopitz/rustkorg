@@ -37,12 +37,12 @@ volume_curve = "linear"
 debounce_ms = 0
 
 # Interval in seconds to search for application audio sinks
-applications_sink_search = 10
+applications_sink_search = 2
 
 [ui]
 # UI settings
 window_width = 1000
-window_height = 600
+window_height = 800
 theme = "default"  # default, dark, light
 
 # Show console by default
@@ -50,6 +50,12 @@ show_console = true
 
 # Max console messages to keep
 max_console_lines = 20
+
+# Spectrum analyzer settings
+show_spectrum = true
+spectrum_stereo_mode = true
+spectrum_show_waterfall = true
+spectrum_show_labels = true
 
 [logging]
 # Enable or disable logging globally

@@ -196,6 +196,114 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             ui.separator();
                             ui.add_space(8.0);
                             
+                            // Show MIDI UI button
+                            if ui.button(RichText::new("Show MIDI UI Layout").size(13.0).color(theme::TEXT_PRIMARY)).clicked() {
+                                ui_state.show_midi_ui_modal = true;
+                            }
+                            
+                            ui.add_space(8.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            
+                            // ===== FADER VISIBILITY & ORDER =====
+                            ui.add_space(8.0);
+                            render_section_header(ui, "Fader Display", theme::ACCENT_GREEN);
+                            ui.add_space(8.0);
+                            
+                            // Audio Sinks Subsection
+                            Frame::default()
+                                .fill(theme::BG_SECONDARY)
+                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .inner_margin(Margin { left: 20, right: 20, top: 8, bottom: 8 })
+                                .corner_radius(CornerRadius::same(4))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.label(RichText::new("🔊 Audio Sinks").size(13.0).color(theme::ACCENT_BLUE).strong());
+                                    ui.add_space(8.0);
+                                    
+                                    for &i in &ui_state.sink_display_order.clone() {
+                                        let mut visible = ui_state.sink_visibility[i];
+                                        ui.horizontal(|ui| {
+                                            if ui.checkbox(&mut visible, &ui_state.system_fader_labels[i].1).changed() {
+                                                ui_state.sink_visibility[i] = visible;
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                            
+                                            ui.add_space(8.0);
+                                            
+                                            // Find position in display order
+                                            let pos = ui_state.sink_display_order.iter().position(|&idx| idx == i).unwrap_or(i);
+                                            
+                                            // Up button
+                                            let can_move_up = pos > 0;
+                                            if ui.add_enabled(can_move_up, egui::Button::new("🔼")).clicked() {
+                                                ui_state.sink_display_order.swap(pos, pos - 1);
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                            
+                                            // Down button
+                                            let can_move_down = pos < ui_state.sink_display_order.len() - 1;
+                                            if ui.add_enabled(can_move_down, egui::Button::new("🔽")).clicked() {
+                                                ui_state.sink_display_order.swap(pos, pos + 1);
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                        });
+                                    }
+                                });
+                            
+                            ui.add_space(12.0);
+                            
+                            // Applications Subsection
+                            Frame::default()
+                                .fill(theme::BG_SECONDARY)
+                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .inner_margin(Margin { left: 20, right: 20, top: 8, bottom: 8 })
+                                .corner_radius(CornerRadius::same(4))
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    ui.label(RichText::new("🎵 Applications").size(13.0).color(theme::ACCENT_ORANGE).strong());
+                                    ui.add_space(8.0);
+                                    
+                                    for &i in &ui_state.app_display_order.clone() {
+                                        let mut visible = ui_state.app_visibility[i];
+                                        ui.horizontal(|ui| {
+                                            if ui.checkbox(&mut visible, &ui_state.app_fader_labels[i].1).changed() {
+                                                ui_state.app_visibility[i] = visible;
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                            
+                                            ui.add_space(8.0);
+                                            
+                                            // Find position in display order
+                                            let pos = ui_state.app_display_order.iter().position(|&idx| idx == i).unwrap_or(i);
+                                            
+                                            // Up button
+                                            let can_move_up = pos > 0;
+                                            if ui.add_enabled(can_move_up, egui::Button::new("🔼")).clicked() {
+                                                ui_state.app_display_order.swap(pos, pos - 1);
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                            
+                                            // Down button
+                                            let can_move_down = pos < ui_state.app_display_order.len() - 1;
+                                            if ui.add_enabled(can_move_down, egui::Button::new("🔽")).clicked() {
+                                                ui_state.app_display_order.swap(pos, pos + 1);
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                        });
+                                    }
+                                });
+                            
+                            ui.add_space(8.0);
+                            ui.separator();
+                            ui.add_space(8.0);
+                            
                             // ===== AUDIO SECTION =====
                             ui.add_space(8.0);
                             render_section_header(ui, "Audio Settings", theme::ACCENT_ORANGE);
@@ -313,9 +421,11 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     ui.set_width(ui.available_width());
                                     ui.horizontal(|ui| {
                                         ui.label(RichText::new("Window Width:").size(12.0).color(theme::TEXT_SECONDARY));
-                                        let old_width = ui_state.cfg_window_width;
-                                        ui.add(egui::DragValue::new(&mut ui_state.cfg_window_width).range(400..=3000));
-                                        if old_width != ui_state.cfg_window_width {
+                                        if ui.text_edit_singleline(&mut ui_state.window_width_str).changed() {
+                                            // Try to parse and update the value
+                                            if let Ok(val) = ui_state.window_width_str.parse::<u32>() {
+                                                ui_state.cfg_window_width = val.max(400).min(3000);
+                                            }
                                             ui_state.settings_dirty = true;
                                             settings_changed = true;
                                         }
@@ -323,9 +433,11 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                         ui.add_space(16.0);
                                         
                                         ui.label(RichText::new("Height:").size(12.0).color(theme::TEXT_SECONDARY));
-                                        let old_height = ui_state.cfg_window_height;
-                                        ui.add(egui::DragValue::new(&mut ui_state.cfg_window_height).range(300..=2000));
-                                        if old_height != ui_state.cfg_window_height {
+                                        if ui.text_edit_singleline(&mut ui_state.window_height_str).changed() {
+                                            // Try to parse and update the value
+                                            if let Ok(val) = ui_state.window_height_str.parse::<u32>() {
+                                                ui_state.cfg_window_height = val.max(300).min(2000);
+                                            }
                                             ui_state.settings_dirty = true;
                                             settings_changed = true;
                                         }
@@ -359,6 +471,50 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     if old_show_console != ui_state.cfg_show_console {
                                         ui_state.settings_dirty = true;
                                         settings_changed = true;
+                                    }
+                                    
+                                    ui.add_space(8.0);
+                                    
+                                    // Show spectrum
+                                    let old_show_spectrum = ui_state.cfg_show_spectrum;
+                                    ui.checkbox(&mut ui_state.cfg_show_spectrum, 
+                                        RichText::new("Show Spectrum Analyzer").size(13.0).color(theme::TEXT_PRIMARY));
+                                    if old_show_spectrum != ui_state.cfg_show_spectrum {
+                                        ui_state.settings_dirty = true;
+                                        settings_changed = true;
+                                    }
+                                    
+                                    if ui_state.cfg_show_spectrum {
+                                        ui.indent("spectrum_options", |ui| {
+                                            ui.add_space(8.0);
+                                            
+                                            // Stereo mode
+                                            let old_stereo = ui_state.cfg_spectrum_stereo_mode;
+                                            ui.checkbox(&mut ui_state.cfg_spectrum_stereo_mode,
+                                                RichText::new("Stereo Mode (L/R split)").size(11.0).color(theme::TEXT_SECONDARY));
+                                            if old_stereo != ui_state.cfg_spectrum_stereo_mode {
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                            
+                                            // Show waterfall
+                                            let old_waterfall = ui_state.cfg_spectrum_show_waterfall;
+                                            ui.checkbox(&mut ui_state.cfg_spectrum_show_waterfall,
+                                                RichText::new("Show Waterfall History").size(11.0).color(theme::TEXT_SECONDARY));
+                                            if old_waterfall != ui_state.cfg_spectrum_show_waterfall {
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                            
+                                            // Show frequency labels
+                                            let old_labels = ui_state.cfg_spectrum_show_labels;
+                                            ui.checkbox(&mut ui_state.cfg_spectrum_show_labels,
+                                                RichText::new("Show Frequency Labels").size(11.0).color(theme::TEXT_SECONDARY));
+                                            if old_labels != ui_state.cfg_spectrum_show_labels {
+                                                ui_state.settings_dirty = true;
+                                                settings_changed = true;
+                                            }
+                                        });
                                     }
                                     
                                     ui.add_space(8.0);
@@ -511,17 +667,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             });
                             
                             ui.add_space(8.0);
-                            
-                            ui.label(
-                                RichText::new("⚠ Note: Some settings require app restart to take effect")
-                                    .size(11.0)
-                                    .color(theme::ACCENT_ORANGE)
-                            );
-                            
-                            ui.add_space(8.0);
                         });
                 });
         });
+    
+    // Render the MIDI UI modal
+    render_midi_ui_modal(ui_state, ctx);
     
     settings_changed
 }
@@ -533,4 +684,49 @@ fn render_section_header(ui: &mut egui::Ui, text: &str, color: Color32) {
             .color(color)
             .strong()
     );
+}
+pub fn render_midi_ui_modal(ui_state: &mut UiState, ctx: &egui::Context) {
+    if ui_state.show_midi_ui_modal {
+        // Load and display the image
+        let image_bytes = include_bytes!("../../assets/korg_detailed.png");
+        
+        // Load texture and dimensions if not already loaded
+        if ui_state.midi_ui_texture.is_none() {
+            if let Ok(image) = image::load_from_memory(image_bytes) {
+                let image_rgba = image.to_rgba8();
+                let width = image_rgba.width() as f32;
+                let height = image_rgba.height() as f32;
+                let size = [image_rgba.width() as usize, image_rgba.height() as usize];
+                let pixels = image_rgba.to_vec();
+                
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    size,
+                    &pixels,
+                );
+                
+                let texture = ctx.load_texture(
+                    "midi_ui_texture",
+                    color_image,
+                    Default::default(),
+                );
+                ui_state.midi_ui_texture = Some(texture);
+                ui_state.midi_ui_dimensions = Some([width, height]);
+            }
+        }
+        
+        // Get dimensions for the modal size
+        let modal_size = ui_state.midi_ui_dimensions.unwrap_or([800.0, 600.0]);
+        
+        egui::Window::new("MIDI UI Layout")
+            .collapsible(false)
+            .resizable(true)
+            .default_size(modal_size)
+            .open(&mut ui_state.show_midi_ui_modal)
+            .show(ctx, |ui| {
+                // Display the texture if available
+                if let Some(texture) = &ui_state.midi_ui_texture {
+                    ui.image(texture);
+                }
+            });
+    }
 }
