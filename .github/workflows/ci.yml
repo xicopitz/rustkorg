@@ -19,7 +19,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpulse-dev libudev-dev
+          sudo apt-get install -y libpulse-dev libudev-dev libasound2-dev
       - run: cargo check
 
   test:
@@ -31,7 +31,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpulse-dev libudev-dev
+          sudo apt-get install -y libpulse-dev libudev-dev libasound2-dev
       - run: cargo test --verbose
 
   fmt:
@@ -42,7 +42,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt -- --check
+      - run: cargo fmt --check
 
   clippy:
     name: Clippy
@@ -55,7 +55,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpulse-dev libudev-dev
+          sudo apt-get install -y libpulse-dev libudev-dev libasound2-dev
       - run: cargo clippy -- -D warnings
 
   build:
@@ -67,5 +67,5 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libpulse-dev libudev-dev
+          sudo apt-get install -y libpulse-dev libudev-dev libasound2-dev
       - run: cargo build --verbose --release
