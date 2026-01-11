@@ -1,0 +1,35 @@
+name: Publish to GitHub Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpulse-dev libudev-dev libasound2-dev
+
+      - name: Set up credentials
+        run: |
+          mkdir -p $HOME/.cargo
+          cat > $HOME/.cargo/credentials.toml << EOF
+          [registries.github]
+          token = "${{ secrets.GITHUB_TOKEN }}"
+          EOF
+
+      - name: Publish to GitHub Packages
+        run: cargo publish --registry github

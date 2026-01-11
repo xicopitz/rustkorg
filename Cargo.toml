@@ -1,7 +1,13 @@
 [package]
 name = "korg-midi-volume"
-version = "0.0.1"
+version = "0.0.9"
 edition = "2021"
+description = "Control PipeWire audio volume using Korg nanoKontrol2 MIDI controller"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+repository = "https://github.com/yourusername/korg"
+keywords = ["midi", "audio", "pipewire", "korg"]
+categories = ["multimedia::audio", "hardware-support"]
 
 [dependencies]
 midir = "0.9"
@@ -23,3 +29,6 @@ image = "0.24"
 [profile.release]
 opt-level = 3
 lto = true
+
+[registries.github]
+index = "https://github.com/yourusername/korg-registry.git"
