@@ -32,6 +32,7 @@ pub struct MidiVolumeApp {
     spectrum_analyzer: SpectrumAnalyzer,  // Spectrum analyzer for visualizer
     last_window_width: u32,  // Track previous window width for live resizing
     last_window_height: u32,  // Track previous window height for live resizing
+    last_spectrum_sink_name: String,  // Track spectrum sink name for change detection
 }
 
 impl MidiVolumeApp {
@@ -155,6 +156,8 @@ impl MidiVolumeApp {
             spectrum_analyzer,
             last_window_width: config.ui.window_width.unwrap_or(1000),
             last_window_height: config.ui.window_height.unwrap_or(800),
+            last_spectrum_sink_name: config.ui.spectrum_sink_name.clone()
+                .unwrap_or_else(|| "master_sink".to_string()),
         };
 
         // Initialize UI fader values for sink controls
@@ -508,6 +511,7 @@ impl MidiVolumeApp {
             self.ui_state.cfg_spectrum_stereo_mode,
             self.ui_state.cfg_spectrum_show_waterfall,
             self.ui_state.cfg_spectrum_show_labels,
+            &self.ui_state.cfg_spectrum_sink_name,
             self.ui_state.cfg_logging_enabled,
             &self.ui_state.cfg_log_level,
             self.ui_state.cfg_timestamps,
@@ -606,6 +610,12 @@ impl eframe::App for MidiVolumeApp {
             
             self.last_window_width = self.ui_state.cfg_window_width;
             self.last_window_height = self.ui_state.cfg_window_height;
+        }
+        
+        // Check for spectrum sink name changes
+        if self.last_spectrum_sink_name != self.ui_state.cfg_spectrum_sink_name {
+            self.last_spectrum_sink_name = self.ui_state.cfg_spectrum_sink_name.clone();
+            self.spectrum_analyzer.start(&self.ui_state.cfg_spectrum_sink_name);
         }
         
         // Process incoming MIDI messages immediately

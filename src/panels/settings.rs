@@ -221,11 +221,19 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     ui.label(RichText::new("🔊 Audio Sinks").size(13.0).color(theme::ACCENT_BLUE).strong());
                                     ui.add_space(8.0);
                                     
-                                    for &i in &ui_state.sink_display_order.clone() {
-                                        let mut visible = ui_state.sink_visibility[i];
+                                    let sink_order = ui_state.sink_display_order.clone();
+                                    for &i in &sink_order {
+                                        // Skip if index is out of bounds (can happen if sink list changed)
+                                        if i >= ui_state.system_fader_labels.len() {
+                                            continue;
+                                        }
+                                        
+                                        let mut visible = ui_state.sink_visibility.get(i).copied().unwrap_or(true);
                                         ui.horizontal(|ui| {
                                             if ui.checkbox(&mut visible, &ui_state.system_fader_labels[i].1).changed() {
-                                                ui_state.sink_visibility[i] = visible;
+                                                if i < ui_state.sink_visibility.len() {
+                                                    ui_state.sink_visibility[i] = visible;
+                                                }
                                                 ui_state.settings_dirty = true;
                                                 settings_changed = true;
                                             }
@@ -267,11 +275,19 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     ui.label(RichText::new("🎵 Applications").size(13.0).color(theme::ACCENT_ORANGE).strong());
                                     ui.add_space(8.0);
                                     
-                                    for &i in &ui_state.app_display_order.clone() {
-                                        let mut visible = ui_state.app_visibility[i];
+                                    let app_order = ui_state.app_display_order.clone();
+                                    for &i in &app_order {
+                                        // Skip if index is out of bounds (can happen if app list changed)
+                                        if i >= ui_state.app_fader_labels.len() {
+                                            continue;
+                                        }
+                                        
+                                        let mut visible = ui_state.app_visibility.get(i).copied().unwrap_or(true);
                                         ui.horizontal(|ui| {
                                             if ui.checkbox(&mut visible, &ui_state.app_fader_labels[i].1).changed() {
-                                                ui_state.app_visibility[i] = visible;
+                                                if i < ui_state.app_visibility.len() {
+                                                    ui_state.app_visibility[i] = visible;
+                                                }
                                                 ui_state.settings_dirty = true;
                                                 settings_changed = true;
                                             }
@@ -330,9 +346,9 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     // Default Sink
                                     ui.horizontal(|ui| {
                                         ui.label(RichText::new("Default Sink:").size(12.0).color(theme::TEXT_SECONDARY));
-                                        let old_sink = ui_state.cfg_default_sink.clone();
+                                        let sink_before = ui_state.cfg_default_sink.clone();
                                         ui.add(egui::TextEdit::singleline(&mut ui_state.cfg_default_sink).desired_width(250.0));
-                                        if old_sink != ui_state.cfg_default_sink {
+                                        if sink_before != ui_state.cfg_default_sink {
                                             ui_state.settings_dirty = true;
                                             settings_changed = true;
                                         }
@@ -343,14 +359,14 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     // Volume Control Mode
                                     ui.horizontal(|ui| {
                                         ui.label(RichText::new("Volume Control Mode:").size(12.0).color(theme::TEXT_SECONDARY));
-                                        let old_mode = ui_state.cfg_volume_control_mode.clone();
+                                        let mode_before = ui_state.cfg_volume_control_mode.clone();
                                         egui::ComboBox::from_id_salt("volume_mode")
                                             .selected_text(&ui_state.cfg_volume_control_mode)
                                             .show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut ui_state.cfg_volume_control_mode, "pipewire-api".to_string(), "pipewire-api");
                                                 ui.selectable_value(&mut ui_state.cfg_volume_control_mode, "pw-volume".to_string(), "pw-volume");
                                             });
-                                        if old_mode != ui_state.cfg_volume_control_mode {
+                                        if mode_before != ui_state.cfg_volume_control_mode {
                                             ui_state.settings_dirty = true;
                                             settings_changed = true;
                                         }
@@ -361,14 +377,14 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     // Volume Curve
                                     ui.horizontal(|ui| {
                                         ui.label(RichText::new("Volume Curve:").size(12.0).color(theme::TEXT_SECONDARY));
-                                        let old_curve = ui_state.cfg_volume_curve.clone();
+                                        let curve_before = ui_state.cfg_volume_curve.clone();
                                         egui::ComboBox::from_id_salt("volume_curve")
                                             .selected_text(&ui_state.cfg_volume_curve)
                                             .show_ui(ui, |ui| {
                                                 ui.selectable_value(&mut ui_state.cfg_volume_curve, "linear".to_string(), "linear");
                                                 ui.selectable_value(&mut ui_state.cfg_volume_curve, "exponential".to_string(), "exponential");
                                             });
-                                        if old_curve != ui_state.cfg_volume_curve {
+                                        if curve_before != ui_state.cfg_volume_curve {
                                             ui_state.settings_dirty = true;
                                             settings_changed = true;
                                         }
@@ -448,7 +464,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     // Theme
                                     ui.horizontal(|ui| {
                                         ui.label(RichText::new("Theme:").size(12.0).color(theme::TEXT_SECONDARY));
-                                        let old_theme = ui_state.cfg_theme.clone();
+                                        let theme_before = ui_state.cfg_theme.clone();
                                         egui::ComboBox::from_id_salt("theme")
                                             .selected_text(&ui_state.cfg_theme)
                                             .show_ui(ui, |ui| {
@@ -456,7 +472,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 ui.selectable_value(&mut ui_state.cfg_theme, "dark".to_string(), "dark");
                                                 ui.selectable_value(&mut ui_state.cfg_theme, "light".to_string(), "light");
                                             });
-                                        if old_theme != ui_state.cfg_theme {
+                                        if theme_before != ui_state.cfg_theme {
                                             ui_state.settings_dirty = true;
                                             settings_changed = true;
                                         }
@@ -514,6 +530,32 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 ui_state.settings_dirty = true;
                                                 settings_changed = true;
                                             }
+                                            
+                                            ui.add_space(8.0);
+                                            
+                                            // Select sink to monitor
+                                            ui.horizontal(|ui| {
+                                                ui.label(RichText::new("Monitor Sink:").size(11.0).color(theme::TEXT_SECONDARY));
+                                                let sink_before = ui_state.cfg_spectrum_sink_name.clone();
+                                                
+                                                // Create a list of available sinks
+                                                let sink_names: Vec<String> = ui_state.system_fader_labels.iter()
+                                                    .map(|(_, name)| name.clone())
+                                                    .collect();
+                                                
+                                                egui::ComboBox::from_id_salt("spectrum_sink")
+                                                    .selected_text(&ui_state.cfg_spectrum_sink_name)
+                                                    .show_ui(ui, |ui| {
+                                                        for sink_name in sink_names {
+                                                            ui.selectable_value(&mut ui_state.cfg_spectrum_sink_name, sink_name.clone(), sink_name);
+                                                        }
+                                                    });
+                                                
+                                                if sink_before != ui_state.cfg_spectrum_sink_name {
+                                                    ui_state.settings_dirty = true;
+                                                    settings_changed = true;
+                                                }
+                                            });
                                         });
                                     }
                                     
@@ -562,7 +604,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     // Log level
                                     ui.horizontal(|ui| {
                                         ui.label(RichText::new("Log Level:").size(12.0).color(theme::TEXT_SECONDARY));
-                                        let old_level = ui_state.cfg_log_level.clone();
+                                        let level_before = ui_state.cfg_log_level.clone();
                                         egui::ComboBox::from_id_salt("log_level")
                                             .selected_text(&ui_state.cfg_log_level)
                                             .show_ui(ui, |ui| {
@@ -573,7 +615,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 ui.selectable_value(&mut ui_state.cfg_log_level, "debug".to_string(), "debug");
                                                 ui.selectable_value(&mut ui_state.cfg_log_level, "trace".to_string(), "trace");
                                             });
-                                        if old_level != ui_state.cfg_log_level {
+                                        if level_before != ui_state.cfg_log_level {
                                             ui_state.settings_dirty = true;
                                             settings_changed = true;
                                         }

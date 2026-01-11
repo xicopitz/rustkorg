@@ -44,7 +44,7 @@ impl Default for SpectrumData {
 /// Spectrum analyzer that captures audio from master sink monitor
 pub struct SpectrumAnalyzer {
     data: Arc<Mutex<SpectrumData>>,
-    _handle: Option<thread::JoinHandle<()>>,
+    handle: Option<thread::JoinHandle<()>>,
     stop_flag: Arc<Mutex<bool>>,
 }
 
@@ -55,13 +55,16 @@ impl SpectrumAnalyzer {
         
         Self {
             data,
-            _handle: None,
+            handle: None,
             stop_flag,
         }
     }
 
     /// Start the spectrum analyzer
     pub fn start(&mut self, sink_name: &str) {
+        // Stop any existing analyzer first
+        self.stop();
+        
         // Reset stop flag
         if let Ok(mut stop) = self.stop_flag.lock() {
             *stop = false;
@@ -75,7 +78,7 @@ impl SpectrumAnalyzer {
             run_analyzer(data, stop_flag, &sink_monitor);
         });
         
-        self._handle = Some(handle);
+        self.handle = Some(handle);
         
         if let Ok(mut d) = self.data.lock() {
             d.running = true;
@@ -90,6 +93,11 @@ impl SpectrumAnalyzer {
         
         if let Ok(mut d) = self.data.lock() {
             d.running = false;
+        }
+        
+        // Wait for the thread to finish
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
         }
     }
 

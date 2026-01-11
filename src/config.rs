@@ -49,6 +49,7 @@ pub struct UiConfig {
     pub spectrum_stereo_mode: Option<bool>,
     pub spectrum_show_waterfall: Option<bool>,
     pub spectrum_show_labels: Option<bool>,
+    pub spectrum_sink_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +175,7 @@ impl Default for Config {
                 spectrum_stereo_mode: Some(false),
                 spectrum_show_waterfall: Some(false),
                 spectrum_show_labels: Some(true),
+                spectrum_sink_name: Some("master_sink".to_string()),
             },
             logging: LoggingConfig {
                 enabled: Some(true),
@@ -370,6 +372,7 @@ impl Config {
         spectrum_stereo_mode: bool,
         spectrum_show_waterfall: bool,
         spectrum_show_labels: bool,
+        spectrum_sink_name: &str,
         logging_enabled: bool,
         log_level: &str,
         timestamps: bool,
@@ -415,6 +418,7 @@ impl Config {
                 spectrum_stereo_mode: Some(spectrum_stereo_mode),
                 spectrum_show_waterfall: Some(spectrum_show_waterfall),
                 spectrum_show_labels: Some(spectrum_show_labels),
+                spectrum_sink_name: Some(spectrum_sink_name.to_string()),
             },
             logging: LoggingConfig {
                 enabled: Some(logging_enabled),

@@ -10,7 +10,7 @@ cc_1 = "comms_sink"
 [midi_controls.applications]
 # Map MIDI CC numbers to application names
 # Use CC numbers 32-63 or 16-31 for app volume controls
-cc_16 = "chrome"
+cc_16 = "Google Chrome"
 cc_17 = "Jellyfin"
 
 [midi_controls.mute_buttons]

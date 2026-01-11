@@ -94,6 +94,7 @@ pub struct UiState {
     pub cfg_spectrum_stereo_mode: bool,  // true = stereo separate, false = combined
     pub cfg_spectrum_show_waterfall: bool,
     pub cfg_spectrum_show_labels: bool,
+    pub cfg_spectrum_sink_name: String,  // Name of the sink to monitor
 }
 
 impl UiState {
@@ -172,6 +173,7 @@ impl UiState {
             cfg_spectrum_stereo_mode: config.ui.spectrum_stereo_mode.unwrap_or(false),
             cfg_spectrum_show_waterfall: config.ui.spectrum_show_waterfall.unwrap_or(false),
             cfg_spectrum_show_labels: config.ui.spectrum_show_labels.unwrap_or(true),
+            cfg_spectrum_sink_name: config.ui.spectrum_sink_name.clone().unwrap_or_else(|| "master_sink".to_string()),
         }
     }
 

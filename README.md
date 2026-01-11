@@ -14,9 +14,18 @@ A Rust application that allows you to control PipeWire audio volume using faders
 - **Control multiple sinks and applications** individually
 - **Mute/unmute** with button support and LED feedback
 - **Visual display** with volume bars and percentage
+- **Real-time audio spectrum analyzer** with frequency visualization
+- **Waterfall display** showing spectrum history over time
+- **Stereo spectrum support** with separate left and right channel analysis
+- **Multiple visualization modes** including bar graph and waterfall display
 - **Settings panel** to configure MIDI mappings and audio preferences
-- **Console output** with timestamped MIDI events
+- **Console output** with timestamped MIDI events and logging
 - **Real-time synchronization** between device and UI
+- **Customizable UI themes** for personalized appearance
+- **Configurable volume curves** for precise control mapping
+- **Debounce controls** to optimize responsiveness
+- **Device availability tracking** for connected sinks and applications
+- **MIDI UI reference panel** showing nanoKontrol2 layout
 
 ## Requirements
 
