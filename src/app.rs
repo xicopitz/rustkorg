@@ -36,16 +36,7 @@ pub struct MidiVolumeApp {
 }
 
 impl MidiVolumeApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
-        // Load configuration with fallback
-        let config =
-            Config::load_with_fallback("config.toml", "~/.bin/audio/nanokontrol2/config.toml")
-                .unwrap_or_else(|e| {
-                    eprintln!("⚠️  Failed to load config.toml: {}", e);
-                    eprintln!("Using default configuration");
-                    Config::default()
-                });
-
+    pub fn new(_cc: &eframe::CreationContext<'_>, config: Config, config_path: String) -> Self {
         let logging_enabled = config.logging.enabled.unwrap_or(true);
         let debounce_ms = config.audio.debounce_ms.unwrap_or(0);
         let applications_sink_search_interval_secs =
@@ -94,7 +85,12 @@ impl MidiVolumeApp {
                 config.audio.volume_control_mode, use_api
             );
         }
-        let pipewire = Arc::new(Mutex::new(PipeWireController::new(use_api)));
+        let default_sink = config
+            .audio
+            .default_sink
+            .clone()
+            .unwrap_or_else(|| "master_sink".to_string());
+        let pipewire = Arc::new(Mutex::new(PipeWireController::new(use_api, &default_sink)));
 
         // Build CC to UI index mappings for fast lookup
         let mut cc_to_sink_index = HashMap::with_capacity(sink_labels.len());
@@ -143,10 +139,10 @@ impl MidiVolumeApp {
                 app_labels.clone(),
                 show_console,
                 max_console_lines,
-                false,                     // enable_tray
-                false,                     // close_to_tray
-                false,                     // start_minimized
-                "config.toml".to_string(), // config_path
+                false, // enable_tray
+                false, // close_to_tray
+                false, // start_minimized
+                config_path,
                 &config,
             ),
             midi_rx: rx,
@@ -505,9 +501,9 @@ impl MidiVolumeApp {
             // Check app availability
             for i in 0..self.ui_state.app_fader_labels.len() {
                 let app_name = &self.ui_state.app_fader_labels[i].1;
-                // For apps, we need to check if they appear in the pactl list
                 let is_available = pipewire.is_app_available(app_name);
                 self.ui_state.app_available[i] = is_available;
+                self.ui_state.app_input_count[i] = pipewire.get_app_input_count(app_name);
             }
         }
     }
@@ -584,6 +580,13 @@ impl MidiVolumeApp {
                     self.ui_state.app_muted.resize(app_labels.len(), false);
                     self.ui_state.app_muted_volume.resize(app_labels.len(), 0);
                     self.ui_state.app_available.resize(app_labels.len(), true);
+
+                    // Reset visibility, display order, and input count to match new config size
+                    self.ui_state.sink_visibility = vec![true; sink_labels.len()];
+                    self.ui_state.sink_display_order = (0..sink_labels.len()).collect();
+                    self.ui_state.app_visibility = vec![true; app_labels.len()];
+                    self.ui_state.app_display_order = (0..app_labels.len()).collect();
+                    self.ui_state.app_input_count = vec![0; app_labels.len()];
 
                     // Rebuild CC type mappings
                     self.cc_types.clear();

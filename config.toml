@@ -10,8 +10,7 @@ cc_1 = "comms_sink"
 [midi_controls.applications]
 # Map MIDI CC numbers to application names
 # Use CC numbers 32-63 or 16-31 for app volume controls
-cc_16 = "Google Chrome"
-cc_17 = "Jellyfin"
+cc_17 = "firefox"
 
 [midi_controls.mute_buttons]
 # Map mute button CC numbers to the CC number of the fader they should mute
@@ -37,19 +36,19 @@ volume_curve = "linear"
 debounce_ms = 0
 
 # Interval in seconds to search for application audio sinks
-applications_sink_search = 2
+applications_sink_search = 10
 
 [ui]
 # UI settings
 window_width = 1000
-window_height = 800
+window_height = 600
 theme = "default"  # default, dark, light
 
 # Show console by default
 show_console = true
 
 # Max console messages to keep
-max_console_lines = 20
+max_console_lines = 50
 
 # Spectrum analyzer settings
 show_spectrum = true

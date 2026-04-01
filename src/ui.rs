@@ -24,6 +24,7 @@ pub struct UiState {
     pub app_muted: Vec<bool>,                // Track mute state for each app fader
     pub app_muted_volume: Vec<u8>,           // Store previous volume when muted
     pub app_available: Vec<bool>,            // Track if app is currently available
+    pub app_input_count: Vec<usize>,         // Number of matching sink inputs per app fader
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
     pub max_console_lines: usize, // Max number of console messages to keep
     // Tray settings
@@ -124,6 +125,7 @@ impl UiState {
             app_muted: vec![false; app_count],
             app_muted_volume: vec![0; app_count],
             app_available: vec![true; app_count],
+            app_input_count: vec![0; app_count],
             console_output: Vec::new(),
             max_console_lines,
             enable_tray,

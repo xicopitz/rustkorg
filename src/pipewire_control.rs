@@ -13,16 +13,137 @@ struct CachedVolume {
 pub struct PipeWireController {
     sink_volume_cache: Arc<Mutex<HashMap<String, CachedVolume>>>,
     app_volume_cache: Arc<Mutex<HashMap<String, CachedVolume>>>,
+    default_sink_name: String,
 }
 
 const VOLUME_CACHE_TTL: Duration = Duration::from_secs(1);
 
 impl PipeWireController {
-    pub fn new(_use_api: bool) -> Self {
+    pub fn new(_use_api: bool, default_sink_name: &str) -> Self {
         PipeWireController {
             sink_volume_cache: Arc::new(Mutex::new(HashMap::new())),
             app_volume_cache: Arc::new(Mutex::new(HashMap::new())),
+            default_sink_name: default_sink_name.to_string(),
         }
+    }
+
+    fn get_sink_index(&self, sink_name: &str) -> Option<u32> {
+        if let Ok(output) = Command::new("pactl").args(&["list", "sinks"]).output() {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let lines: Vec<&str> = text.lines().collect();
+
+                let mut current_index: Option<u32> = None;
+                for line in &lines {
+                    if line.starts_with("Sink #") {
+                        if let Some(idx_str) = line
+                            .strip_prefix("Sink #")
+                            .and_then(|s| s.split_whitespace().next())
+                        {
+                            current_index = idx_str.parse::<u32>().ok();
+                        }
+                    }
+                    if let Some(idx) = current_index {
+                        if line.trim().starts_with("Name:") && line.contains(sink_name) {
+                            return Some(idx);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn get_matching_app_inputs(&self, app_name: &str) -> Vec<(u32, u8)> {
+        let target_sink_index = match self.get_sink_index(&self.default_sink_name) {
+            Some(idx) => idx,
+            None => return Vec::new(),
+        };
+
+        let app_name_lower = app_name.to_lowercase();
+        let normalized_config = normalize_app_name(&app_name_lower);
+
+        let mut results = Vec::new();
+
+        if let Ok(output) = Command::new("pactl")
+            .args(&["list", "sink-inputs"])
+            .output()
+        {
+            if output.status.success() {
+                let text = String::from_utf8_lossy(&output.stdout);
+                let lines: Vec<&str> = text.lines().collect();
+
+                let mut current_input_index: Option<u32> = None;
+                let mut current_sink: Option<u32> = None;
+                let mut matched_app: bool = false;
+                let mut matched_volume: Option<u8> = None;
+
+                for line in &lines {
+                    if line.starts_with("Sink Input #") {
+                        if let Some(idx) = current_input_index {
+                            if matched_app && matched_sink(current_sink, target_sink_index) {
+                                if let Some(vol) = matched_volume {
+                                    results.push((idx, vol));
+                                }
+                            }
+                        }
+                        if let Some(idx_str) = line
+                            .strip_prefix("Sink Input #")
+                            .and_then(|s| s.split_whitespace().next())
+                        {
+                            current_input_index = idx_str.parse::<u32>().ok();
+                        }
+                        current_sink = None;
+                        matched_app = false;
+                        matched_volume = None;
+                        continue;
+                    }
+
+                    if let Some(_) = current_input_index {
+                        if line.trim().starts_with("Sink:") {
+                            if let Some(val_str) =
+                                line.trim().strip_prefix("Sink:").map(|s| s.trim())
+                            {
+                                current_sink = val_str.parse::<u32>().ok();
+                            }
+                        }
+
+                        if !matched_app {
+                            let line_lower = line.to_lowercase();
+                            let normalized_line = normalize_app_name(&line_lower);
+                            if (line_lower.contains("application.name")
+                                && normalized_line.contains(&normalized_config))
+                                || (line_lower.contains("application.process.binary")
+                                    && normalized_line.contains(&normalized_config))
+                            {
+                                matched_app = true;
+                            }
+                        }
+
+                        if matched_volume.is_none() && line.contains("Volume:") {
+                            for part in line.split('/') {
+                                if let Some(pct) = part.trim().strip_suffix('%') {
+                                    if let Ok(vol) = pct.trim().parse::<u8>() {
+                                        matched_volume = Some(vol);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let Some(idx) = current_input_index {
+                    if matched_app && matched_sink(current_sink, target_sink_index) {
+                        if let Some(vol) = matched_volume {
+                            results.push((idx, vol));
+                        }
+                    }
+                }
+            }
+        }
+
+        results
     }
 
     pub fn set_volume_for_sink(&self, sink_name: &str, volume_percent: u8) -> Result<()> {
@@ -90,66 +211,29 @@ impl PipeWireController {
     }
 
     pub fn set_volume_for_app(&self, app_name: &str, volume_percent: u8) -> Result<()> {
-        // Invalidate cache for this app
         if let Ok(mut cache) = self.app_volume_cache.lock() {
             cache.remove(app_name);
         }
-        // Use pactl to find and set the volume for a specific application
-        let app_name_lower = app_name.to_lowercase();
-        let normalized_config = normalize_app_name(&app_name_lower);
 
-        if let Ok(output) = Command::new("pactl")
-            .args(&["list", "sink-inputs"])
-            .output()
-        {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let lines: Vec<&str> = text.lines().collect();
-
-                // First pass: look for exact matches or close matches
-                for (i, line) in lines.iter().enumerate() {
-                    let line_lower = line.to_lowercase();
-                    let normalized_line = normalize_app_name(&line_lower);
-
-                    // Check for application.name or application.process.binary fields
-                    if (line_lower.contains("application.name")
-                        && normalized_line.contains(&normalized_config))
-                        || (line_lower.contains("application.process.binary")
-                            && normalized_line.contains(&normalized_config))
-                        || normalized_line.contains(&normalized_config)
-                    {
-                        // Look backwards for the sink input index
-                        for j in (0..=i).rev() {
-                            if lines[j].starts_with("Sink Input #") {
-                                if let Some(index_str) = lines[j]
-                                    .strip_prefix("Sink Input #")
-                                    .and_then(|s| s.split_whitespace().next())
-                                {
-                                    if let Ok(_index) = index_str.parse::<u32>() {
-                                        let _ = Command::new("pactl")
-                                            .args(&[
-                                                "set-sink-input-volume",
-                                                index_str,
-                                                &format!("{}%", volume_percent),
-                                            ])
-                                            .output();
-                                        return Ok(());
-                                    }
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                eprintln!(
-                    "App '{}' not found in sink inputs (tried matching: '{}')",
-                    app_name, normalized_config
-                );
-            }
+        let matching_inputs = self.get_matching_app_inputs(app_name);
+        if matching_inputs.is_empty() {
+            eprintln!(
+                "App '{}' not found on sink '{}' in sink inputs",
+                app_name, self.default_sink_name
+            );
+            return Ok(());
         }
 
-        // Fallback: silently ignore if app not found (it might not be playing audio)
+        for (input_index, _) in &matching_inputs {
+            let _ = Command::new("pactl")
+                .args(&[
+                    "set-sink-input-volume",
+                    &input_index.to_string(),
+                    &format!("{}%", volume_percent),
+                ])
+                .output();
+        }
+
         Ok(())
     }
 
@@ -163,7 +247,7 @@ impl PipeWireController {
             }
         }
 
-        let result = Self::fetch_app_volume(app_name);
+        let result = self.fetch_app_volume(app_name);
 
         // Update cache
         if let Ok(mut cache) = self.app_volume_cache.lock() {
@@ -179,83 +263,28 @@ impl PipeWireController {
         result
     }
 
-    #[inline]
-    fn fetch_app_volume(app_name: &str) -> u8 {
-        // Try to get the current volume for an application
-        let app_name_lower = app_name.to_lowercase();
-        let normalized_config = normalize_app_name(&app_name_lower);
-
-        if let Ok(output) = Command::new("pactl")
-            .args(&["list", "sink-inputs"])
-            .output()
-        {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let lines: Vec<&str> = text.lines().collect();
-
-                // Parse the sink-inputs to find the one matching the app name
-                for (i, line) in lines.iter().enumerate() {
-                    let line_lower = line.to_lowercase();
-                    let normalized_line = normalize_app_name(&line_lower);
-
-                    // Check for application.name or application.process.binary fields
-                    if (line_lower.contains("application.name")
-                        && normalized_line.contains(&normalized_config))
-                        || (line_lower.contains("application.process.binary")
-                            && normalized_line.contains(&normalized_config))
-                        || normalized_line.contains(&normalized_config)
-                    {
-                        // Look forward for the volume information
-                        for j in i..std::cmp::min(i + 20, lines.len()) {
-                            if lines[j].contains("Volume:") {
-                                for part in lines[j].split('/') {
-                                    if let Some(pct) = part.trim().strip_suffix('%') {
-                                        if let Ok(vol) = pct.trim().parse::<u8>() {
-                                            return vol;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    fn fetch_app_volume(&self, app_name: &str) -> u8 {
+        let matching_inputs = self.get_matching_app_inputs(app_name);
+        if matching_inputs.is_empty() {
+            return 50;
         }
-
-        50 // Default fallback
+        let sum: u32 = matching_inputs.iter().map(|(_, v)| *v as u32).sum();
+        (sum / matching_inputs.len() as u32) as u8
     }
 
     pub fn is_app_available(&self, app_name: &str) -> bool {
-        // Check if an application is currently available (has an active sink input)
-        let app_name_lower = app_name.to_lowercase();
-        let normalized_config = normalize_app_name(&app_name_lower);
+        !self.get_matching_app_inputs(app_name).is_empty()
+    }
 
-        if let Ok(output) = Command::new("pactl")
-            .args(&["list", "sink-inputs"])
-            .output()
-        {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
+    pub fn get_app_input_count(&self, app_name: &str) -> usize {
+        self.get_matching_app_inputs(app_name).len()
+    }
+}
 
-                // Parse the sink-inputs to find one matching the app name
-                for line in text.lines() {
-                    let line_lower = line.to_lowercase();
-                    let normalized_line = normalize_app_name(&line_lower);
-
-                    // Check for application.name or application.process.binary fields
-                    if (line_lower.contains("application.name")
-                        && normalized_line.contains(&normalized_config))
-                        || (line_lower.contains("application.process.binary")
-                            && normalized_line.contains(&normalized_config))
-                        || normalized_line.contains(&normalized_config)
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        false
+fn matched_sink(current_sink: Option<u32>, target_sink: u32) -> bool {
+    match current_sink {
+        Some(idx) => idx == target_sink,
+        None => false,
     }
 }
 

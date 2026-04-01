@@ -71,6 +71,7 @@ pub fn render_faders_tab(
                                         theme::ACCENT_BLUE,
                                         is_muted,
                                         is_available,
+                                        None,
                                     );
                                     if old_value != ui_state.system_fader_values[display_idx] {
                                         changed_faders.push((
@@ -114,6 +115,13 @@ pub fn render_faders_tab(
                                         theme::ACCENT_ORANGE,
                                         is_muted,
                                         is_available,
+                                        Some(
+                                            ui_state
+                                                .app_input_count
+                                                .get(display_idx)
+                                                .copied()
+                                                .unwrap_or(0),
+                                        ),
                                     );
                                     if old_value != ui_state.app_fader_values[display_idx] {
                                         changed_faders.push((
@@ -162,6 +170,7 @@ fn render_fader_with_mute(
     section_color: Color32,
     is_muted: bool,
     is_available: bool,
+    input_count: Option<usize>,
 ) {
     // Container for each fader
     Frame::default()
@@ -198,6 +207,16 @@ fn render_fader_with_mute(
                             Color32::from_rgb(60, 60, 70)
                         },
                     ));
+
+                    if let Some(count) = input_count {
+                        if count > 0 {
+                            ui.label(
+                                RichText::new(format!("({} inputs)", count))
+                                    .size(12.0)
+                                    .color(theme::TEXT_SECONDARY),
+                            );
+                        }
+                    }
                 });
 
                 ui.add_space(2.0);
