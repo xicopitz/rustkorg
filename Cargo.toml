@@ -1,6 +1,6 @@
 [package]
 name = "korg-midi-volume"
-version = "0.0.9"
+version = "0.0.12"
 edition = "2021"
 description = "Control PipeWire audio volume using Korg nanoKontrol2 MIDI controller"
 authors = ["Your Name <your.email@example.com>"]
