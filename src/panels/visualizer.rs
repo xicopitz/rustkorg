@@ -32,30 +32,39 @@ impl Default for VisualizerState {
 
 impl VisualizerState {
     /// Smoothly interpolate towards target values
-    pub fn update(&mut self, target: &SpectrumData, dt: f32) {
-        // Fast interpolation - responsive but visually smooth
-        let speed = 20.0 * dt; // Fast lerp for smooth animation
+    pub fn update(&mut self, target: &SpectrumData, dt: f32, attack_speed: f32, release_speed: f32) {
+        // Exponential mapping makes control changes more perceptible across the range.
+        let attack = (1.0 - (-attack_speed * dt).exp()).clamp(0.0, 1.0);
+        let release = (1.0 - (-release_speed * dt).exp()).clamp(0.0, 1.0);
+        let peak_release = (1.0 - (-(release_speed * 0.35) * dt).exp()).clamp(0.0, 1.0);
 
         for i in 0..NUM_BANDS {
-            self.display_bands[i] = lerp(self.display_bands[i], target.bands[i], speed.min(1.0));
-            self.display_bands_right[i] = lerp(
-                self.display_bands_right[i],
-                target.bands_right[i],
-                speed.min(1.0),
-            );
+            self.display_bands[i] = if target.bands[i] > self.display_bands[i] {
+                lerp(self.display_bands[i], target.bands[i], attack)
+            } else {
+                lerp(self.display_bands[i], target.bands[i], release)
+            };
+            self.display_bands_right[i] = if target.bands_right[i] > self.display_bands_right[i] {
+                lerp(self.display_bands_right[i], target.bands_right[i], attack)
+            } else {
+                lerp(self.display_bands_right[i], target.bands_right[i], release)
+            };
 
             // Peaks: instant attack, slow decay
             if target.peaks[i] > self.display_peaks[i] {
                 self.display_peaks[i] = target.peaks[i];
             } else {
-                self.display_peaks[i] = lerp(self.display_peaks[i], target.peaks[i], 2.0 * dt);
+                self.display_peaks[i] = lerp(self.display_peaks[i], target.peaks[i], peak_release);
             }
 
             if target.peaks_right[i] > self.display_peaks_right[i] {
                 self.display_peaks_right[i] = target.peaks_right[i];
             } else {
-                self.display_peaks_right[i] =
-                    lerp(self.display_peaks_right[i], target.peaks_right[i], 2.0 * dt);
+                self.display_peaks_right[i] = lerp(
+                    self.display_peaks_right[i],
+                    target.peaks_right[i],
+                    peak_release,
+                );
             }
         }
 
@@ -77,6 +86,10 @@ fn lerp(a: f32, b: f32, t: f32) -> f32 {
 /// Render the frequency spectrum visualizer
 pub fn render_spectrum_visualizer(
     ui: &mut Ui,
+    show_spectrum: &mut bool,
+    attack_speed: &mut f32,
+    release_speed: &mut f32,
+    color_palette: &str,
     spectrum: &SpectrumData,
     state: &mut VisualizerState,
     enabled: bool,
@@ -84,10 +97,12 @@ pub fn render_spectrum_visualizer(
     show_waterfall: bool,
     show_labels: bool,
 ) {
+    let spectrum_enabled = enabled && *show_spectrum;
+
     // Update with smoothing
     let dt = ui.ctx().input(|i| i.predicted_dt);
-    if enabled {
-        state.update(spectrum, dt);
+    if spectrum_enabled {
+        state.update(spectrum, dt, *attack_speed, *release_speed);
     } else {
         // Fade out when disabled
         for i in 0..NUM_BANDS {
@@ -108,6 +123,7 @@ pub fn render_spectrum_visualizer(
 
             // Header
             ui.horizontal(|ui| {
+                ui.checkbox(show_spectrum, "");
                 ui.label(
                     RichText::new("📊 Spectrum Analyzer")
                         .strong()
@@ -115,28 +131,67 @@ pub fn render_spectrum_visualizer(
                         .color(theme::ACCENT_CYAN),
                 );
 
-                ui.add_space(8.0);
+                if *show_spectrum {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.scope(|ui| {
+                            // Keep these sliders visually distinct from panel background.
+                            ui.style_mut().visuals.widgets.inactive.bg_fill =
+                                Color32::from_rgb(60, 60, 70);
+                            ui.style_mut().visuals.widgets.hovered.bg_fill =
+                                Color32::from_rgb(80, 80, 92);
+                            ui.style_mut().visuals.widgets.active.bg_fill = Color32::WHITE;
+                            ui.style_mut().visuals.selection.bg_fill = Color32::WHITE;
+                            ui.style_mut().visuals.widgets.active.bg_stroke =
+                                Stroke::new(1.5, Color32::WHITE);
+                            ui.style_mut().visuals.widgets.hovered.bg_stroke =
+                                Stroke::new(1.0, Color32::from_rgb(190, 190, 200));
+
+                            ui.add_sized(
+                                [130.0, 0.0],
+                                Slider::new(release_speed, 1.0..=36.0).text("Release"),
+                            );
+                            ui.add_space(4.0);
+                            ui.add_sized(
+                                [130.0, 0.0],
+                                Slider::new(attack_speed, 4.0..=64.0).text("Attack"),
+                            );
+                        });
+                    });
+                }
             });
 
-            ui.add_space(8.0);
+            if spectrum_enabled {
+                ui.add_space(8.0);
 
-            // Main visualizer
-            let height = if show_waterfall { 150.0 } else { 120.0 };
-            let width = ui.available_width();
+                // Main visualizer
+                let height = if show_waterfall { 150.0 } else { 120.0 };
+                let width = ui.available_width();
 
-            let (rect, _response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+                let (rect, _response) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
 
-            if show_waterfall {
-                render_spectrum_with_waterfall(
-                    ui.painter(),
-                    rect,
-                    state,
-                    enabled,
-                    stereo_mode,
-                    show_labels,
-                );
+                if show_waterfall {
+                    render_spectrum_with_waterfall(
+                        ui.painter(),
+                        rect,
+                        state,
+                        enabled,
+                        stereo_mode,
+                        show_labels,
+                        color_palette,
+                    );
+                } else {
+                    render_spectrum_bars(
+                        ui.painter(),
+                        rect,
+                        state,
+                        enabled,
+                        stereo_mode,
+                        show_labels,
+                        color_palette,
+                    );
+                }
             } else {
-                render_spectrum_bars(ui.painter(), rect, state, enabled, stereo_mode, show_labels);
+                ui.add_space(4.0);
             }
         });
 }
@@ -148,6 +203,7 @@ fn render_spectrum_with_waterfall(
     enabled: bool,
     stereo_mode: bool,
     show_labels: bool,
+    color_palette: &str,
 ) {
     let spectrum_height = rect.height() * 0.75;
 
@@ -165,13 +221,14 @@ fn render_spectrum_with_waterfall(
         enabled,
         stereo_mode,
         show_labels,
+        color_palette,
     );
 
     // Draw waterfall below
-    render_waterfall(painter, waterfall_rect, state);
+    render_waterfall(painter, waterfall_rect, state, color_palette);
 }
 
-fn render_waterfall(painter: &Painter, rect: Rect, state: &VisualizerState) {
+fn render_waterfall(painter: &Painter, rect: Rect, state: &VisualizerState, color_palette: &str) {
     painter.rect_filled(rect, 2.0, theme::BG_TERTIARY);
 
     let bar_width = (rect.width() - 4.0) / NUM_BANDS as f32;
@@ -184,7 +241,7 @@ fn render_waterfall(painter: &Painter, rect: Rect, state: &VisualizerState) {
 
         for band in 0..NUM_BANDS {
             let value = state.waterfall_history[history_idx][band];
-            let color = get_bar_color(band, value);
+            let color = get_bar_color(band, value, color_palette);
 
             let x = rect.min.x + 2.0 + band as f32 * bar_width;
             let pixel_rect =
@@ -202,6 +259,7 @@ fn render_spectrum_bars(
     enabled: bool,
     stereo_mode: bool,
     show_labels: bool,
+    color_palette: &str,
 ) {
     // Background
     painter.rect_filled(rect, 4.0, theme::BG_TERTIARY);
@@ -237,7 +295,7 @@ fn render_spectrum_bars(
             let bar_height_left = band_value_left * available_height;
             let peak_y_left = bars_bottom - 2.0 - peak_value_left * available_height;
 
-            let color_left = get_bar_color(i, band_value_left);
+            let color_left = get_bar_color(i, band_value_left, color_palette);
 
             if bar_height_left > 0.5 {
                 let bar_rect = Rect::from_min_max(
@@ -272,7 +330,7 @@ fn render_spectrum_bars(
             let bar_height_right = band_value_right * available_height;
             let peak_y_right = bars_bottom - 2.0 - peak_value_right * available_height;
 
-            let color_right = get_bar_color(i, band_value_right);
+            let color_right = get_bar_color(i, band_value_right, color_palette);
 
             if bar_height_right > 0.5 {
                 let bar_rect = Rect::from_min_max(
@@ -313,7 +371,7 @@ fn render_spectrum_bars(
             let bar_height = band_value * available_height;
             let peak_y = bars_bottom - 2.0 - peak_value * available_height;
 
-            let color = get_bar_color(i, band_value);
+            let color = get_bar_color(i, band_value, color_palette);
 
             // Draw bar
             if bar_height > 0.5 {
@@ -407,15 +465,164 @@ fn render_frequency_labels(painter: &Painter, rect: Rect) {
 }
 
 /// Get color for a bar based on its band index and value
-fn get_bar_color(band_index: usize, value: f32) -> Color32 {
-    // Color gradient from blue (low) to cyan (mid) to green (high freq)
+fn get_bar_color(band_index: usize, value: f32, color_palette: &str) -> Color32 {
+    match color_palette {
+        "classic" => get_classic_bar_color(band_index, value),
+        "ocean" => get_ocean_bar_color(band_index, value),
+        "fire" => get_fire_bar_color(band_index, value),
+        "sunset" => get_sunset_bar_color(band_index, value),
+        "forest" => get_forest_bar_color(band_index, value),
+        "mono" => get_mono_bar_color(value),
+        // Default to neon for unknown values.
+        _ => get_neon_bar_color(band_index, value),
+    }
+}
+
+fn get_neon_bar_color(band_index: usize, value: f32) -> Color32 {
+    // Distinct neon gradient: violet -> magenta -> amber -> lime
     let t = band_index as f32 / NUM_BANDS as f32;
 
     // Intensity based on value
+    let intensity = 0.42 + 0.58 * value;
+
+    let (r, g, b) = if t < 0.34 {
+        // Low frequencies: Violet -> Magenta
+        let t2 = t / 0.34;
+        (
+            (125.0 * (1.0 - t2) + 235.0 * t2) * intensity,
+            (80.0 * (1.0 - t2) + 85.0 * t2) * intensity,
+            (235.0 * (1.0 - t2) + 185.0 * t2) * intensity,
+        )
+    } else if t < 0.68 {
+        // Mid frequencies: Magenta -> Amber
+        let t2 = (t - 0.34) / 0.34;
+        (
+            (235.0 * (1.0 - t2) + 255.0 * t2) * intensity,
+            (85.0 * (1.0 - t2) + 175.0 * t2) * intensity,
+            (185.0 * (1.0 - t2) + 70.0 * t2) * intensity,
+        )
+    } else {
+        // High frequencies: Amber -> Lime
+        let t2 = (t - 0.68) / 0.32;
+        (
+            (255.0 * (1.0 - t2) + 175.0 * t2) * intensity,
+            (175.0 * (1.0 - t2) + 235.0 * t2) * intensity,
+            (70.0 * (1.0 - t2) + 90.0 * t2) * intensity,
+        )
+    };
+
+    Color32::from_rgb(r as u8, g as u8, b as u8)
+}
+
+fn get_ocean_bar_color(band_index: usize, value: f32) -> Color32 {
+    let t = band_index as f32 / NUM_BANDS as f32;
+    let intensity = 0.45 + 0.55 * value;
+
+    let (r, g, b) = if t < 0.5 {
+        let t2 = t / 0.5;
+        (
+            (30.0 * (1.0 - t2) + 40.0 * t2) * intensity,
+            (90.0 * (1.0 - t2) + 175.0 * t2) * intensity,
+            (165.0 * (1.0 - t2) + 225.0 * t2) * intensity,
+        )
+    } else {
+        let t2 = (t - 0.5) / 0.5;
+        (
+            (40.0 * (1.0 - t2) + 120.0 * t2) * intensity,
+            (175.0 * (1.0 - t2) + 210.0 * t2) * intensity,
+            (225.0 * (1.0 - t2) + 200.0 * t2) * intensity,
+        )
+    };
+
+    Color32::from_rgb(r as u8, g as u8, b as u8)
+}
+
+fn get_fire_bar_color(band_index: usize, value: f32) -> Color32 {
+    let t = band_index as f32 / NUM_BANDS as f32;
+    let intensity = 0.5 + 0.5 * value;
+
+    let (r, g, b) = if t < 0.4 {
+        let t2 = t / 0.4;
+        (
+            (210.0 * (1.0 - t2) + 240.0 * t2) * intensity,
+            (40.0 * (1.0 - t2) + 95.0 * t2) * intensity,
+            (25.0 * (1.0 - t2) + 30.0 * t2) * intensity,
+        )
+    } else if t < 0.75 {
+        let t2 = (t - 0.4) / 0.35;
+        (
+            (240.0 * (1.0 - t2) + 255.0 * t2) * intensity,
+            (95.0 * (1.0 - t2) + 165.0 * t2) * intensity,
+            (30.0 * (1.0 - t2) + 45.0 * t2) * intensity,
+        )
+    } else {
+        let t2 = (t - 0.75) / 0.25;
+        (
+            (255.0 * (1.0 - t2) + 255.0 * t2) * intensity,
+            (165.0 * (1.0 - t2) + 220.0 * t2) * intensity,
+            (45.0 * (1.0 - t2) + 120.0 * t2) * intensity,
+        )
+    };
+
+    Color32::from_rgb(r as u8, g as u8, b as u8)
+}
+
+fn get_sunset_bar_color(band_index: usize, value: f32) -> Color32 {
+    let t = band_index as f32 / NUM_BANDS as f32;
+    let intensity = 0.45 + 0.55 * value;
+
+    let (r, g, b) = if t < 0.5 {
+        let t2 = t / 0.5;
+        (
+            (105.0 * (1.0 - t2) + 215.0 * t2) * intensity,
+            (65.0 * (1.0 - t2) + 95.0 * t2) * intensity,
+            (180.0 * (1.0 - t2) + 140.0 * t2) * intensity,
+        )
+    } else {
+        let t2 = (t - 0.5) / 0.5;
+        (
+            (215.0 * (1.0 - t2) + 255.0 * t2) * intensity,
+            (95.0 * (1.0 - t2) + 190.0 * t2) * intensity,
+            (140.0 * (1.0 - t2) + 95.0 * t2) * intensity,
+        )
+    };
+
+    Color32::from_rgb(r as u8, g as u8, b as u8)
+}
+
+fn get_forest_bar_color(band_index: usize, value: f32) -> Color32 {
+    let t = band_index as f32 / NUM_BANDS as f32;
+    let intensity = 0.45 + 0.55 * value;
+
+    let (r, g, b) = if t < 0.5 {
+        let t2 = t / 0.5;
+        (
+            (35.0 * (1.0 - t2) + 55.0 * t2) * intensity,
+            (120.0 * (1.0 - t2) + 180.0 * t2) * intensity,
+            (70.0 * (1.0 - t2) + 95.0 * t2) * intensity,
+        )
+    } else {
+        let t2 = (t - 0.5) / 0.5;
+        (
+            (55.0 * (1.0 - t2) + 185.0 * t2) * intensity,
+            (180.0 * (1.0 - t2) + 230.0 * t2) * intensity,
+            (95.0 * (1.0 - t2) + 120.0 * t2) * intensity,
+        )
+    };
+
+    Color32::from_rgb(r as u8, g as u8, b as u8)
+}
+
+fn get_mono_bar_color(value: f32) -> Color32 {
+    let v = (90.0 + 165.0 * value).clamp(0.0, 255.0) as u8;
+    Color32::from_rgb(v, v, v)
+}
+
+fn get_classic_bar_color(band_index: usize, value: f32) -> Color32 {
+    let t = band_index as f32 / NUM_BANDS as f32;
     let intensity = 0.5 + 0.5 * value;
 
     let (r, g, b) = if t < 0.33 {
-        // Low frequencies: Blue to Cyan
         let t2 = t / 0.33;
         (
             (60.0 * (1.0 - t2) + 80.0 * t2) * intensity,
@@ -423,7 +630,6 @@ fn get_bar_color(band_index: usize, value: f32) -> Color32 {
             (220.0 * (1.0 - t2) + 220.0 * t2) * intensity,
         )
     } else if t < 0.66 {
-        // Mid frequencies: Cyan to Green
         let t2 = (t - 0.33) / 0.33;
         (
             (80.0 * (1.0 - t2) + 100.0 * t2) * intensity,
@@ -431,7 +637,6 @@ fn get_bar_color(band_index: usize, value: f32) -> Color32 {
             (220.0 * (1.0 - t2) + 150.0 * t2) * intensity,
         )
     } else {
-        // High frequencies: Green to Yellow/Orange
         let t2 = (t - 0.66) / 0.34;
         (
             (100.0 * (1.0 - t2) + 220.0 * t2) * intensity,

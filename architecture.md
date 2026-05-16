@@ -9,7 +9,7 @@ Control PipeWire audio volume using faders and buttons on a **Korg nanoKontrol2 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                         eframe/egui UI                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
+│  ┌──────────────┐  ┌─────────────┐  ┌─────────────┐                 │
 │  │  Control     │  │  Console    │  │  Settings   │                 │
 │  │  Tab         │  │  Tab        │  │  Tab        │                 │
 │  │              │  │             │  │             │                 │
@@ -17,18 +17,18 @@ Control PipeWire audio volume using faders and buttons on a **Korg nanoKontrol2 
 │  │  Analyzer    │  │  Events     │  │  Audio Cfg  │                 │
 │  │  + Waterfall │  │             │  │  UI Cfg     │                 │
 │  └──────┬───────┘  └─────────────┘  └──────┬──────┘                 │
-│         │                                   │                        │
-│         ▼                                   ▼                        │
+│         │                                  │                        │
+│         ▼                                  ▼                        │
 │  ┌──────────────────────────────────────────────────┐               │
-│  │              MidiVolumeApp (app.rs)               │               │
-│  │  - MIDI message processing                        │               │
-│  │  - Volume change dispatch (thread-per-action)     │               │
-│  │  - Mute toggle logic                              │               │
-│  │  - Audio availability checks + input counts       │               │
-│  │  - Settings save + hot-reload (no restart)        │               │
+│  │              MidiVolumeApp (app.rs)              │               │
+│  │  - MIDI message processing                       │               │
+│  │  - Volume change dispatch (thread-per-action)    │               │
+│  │  - Mute toggle logic                             │               │
+│  │  - Audio availability checks + input counts      │               │
+│  │  - Settings save + hot-reload (no restart)       │               │
 │  └───────┬──────────────────────┬───────────────────┘               │
-│          │                      │                                    │
-│          ▼                      ▼                                    │
+│          │                      │                                   │
+│          ▼                      ▼                                   │
 │  ┌───────────────┐    ┌──────────────────┐                          │
 │  │  MidiListener │    │ MidiOutput       │                          │
 │  │  (midi.rs)    │    │ (LED feedback)   │                          │
@@ -38,27 +38,27 @@ Control PipeWire audio volume using faders and buttons on a **Korg nanoKontrol2 
 │  └───────────────┘    └──────────────────┘                          │
 │                                                                     │
 │  ┌───────────────────────────────────────────────┐                  │
-│  │           PipeWireController                   │                  │
-│  │           (pipewire_control.rs)                │                  │
-│  │                                                │                  │
-│  │  default_sink_name — filter apps by sink       │                  │
-│  │  get_sink_index() — resolve sink name → index  │                  │
-│  │  get_matching_app_inputs() — ALL inputs on     │                  │
-│  │    default sink matching an app name           │                  │
-│  │  set_volume_for_app — sets volume on ALL       │                  │
-│  │    matching inputs (not just first)            │                  │
-│  │  fetch_app_volume — returns average volume     │                  │
-│  │  get_app_input_count — count of matching inputs│                  │
-│  │  Volume cache with TTL                         │                  │
+│  │           PipeWireController                  │                  │
+│  │           (pipewire_control.rs)               │                  │
+│  │                                               │                  │
+│  │  default_sink_name — filter apps by sink      │                  │
+│  │  get_sink_index() — resolve sink name → index │                  │
+│  │  get_matching_app_inputs() — ALL inputs on    │                  │
+│  │    default sink matching an app name          │                  │
+│  │  set_volume_for_app — sets volume on ALL      │                  │
+│  │    matching inputs (not just first)           │                  │
+│  │  fetch_app_volume — returns average volume    │                  │
+│  │  get_app_input_count — count of matching input│                  │
+│  │  Volume cache with TTL                        │                  │
 │  └───────────────────────────────────────────────┘                  │
 │                                                                     │
 │  ┌───────────────────────────────────────────────┐                  │
-│  │            SpectrumAnalyzer                    │                  │
-│  │            (spectrum.rs)                       │                  │
-│  │                                                │                  │
-│  │  PulseAudio simple API (stereo capture)        │                  │
-│  │  FFT (rustfft, 512-point, Hanning window)      │                  │
-│  │  32 logarithmic frequency bands (20Hz-20kHz)   │                  │
+│  │            SpectrumAnalyzer                   │                  │
+│  │            (spectrum.rs)                      │                  │
+│  │                                               │                  │
+│  │  PulseAudio simple API (stereo capture)       │                  │
+│  │  FFT (rustfft, 512-point, Hanning window)     │                  │
+│  │  32 logarithmic frequency bands (20Hz-20kHz)  │                  │
 │  └───────────────────────────────────────────────┘                  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
@@ -223,5 +223,5 @@ Config file path: `config.toml` (relative to working directory), with fallback a
 
 The application is designed to work with virtual sinks for flexible routing:
 - `master_sink` — null sink routed to physical output, used for master volume
-- `comms_sink` — null sink for voice/chat applications
+- `comms_sink` — null sink for voice/chat applicationsof 
 - Both are loopbacked to the physical audio device via `module-loopback`

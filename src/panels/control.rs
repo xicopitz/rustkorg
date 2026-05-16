@@ -28,60 +28,111 @@ pub fn render_faders_tab(
                             ui.set_width(ui.available_width());
 
                             // Spectrum Visualizer Section
-                            if ui_state.cfg_show_spectrum {
-                                ui.add_space(16.0);
-                                render_spectrum_visualizer(
-                                    ui,
-                                    &ui_state.spectrum_data,
-                                    &mut ui_state.visualizer_state,
-                                    true,
-                                    ui_state.cfg_spectrum_stereo_mode,
-                                    ui_state.cfg_spectrum_show_waterfall,
-                                    ui_state.cfg_spectrum_show_labels,
-                                );
-                                ui.add_space(8.0);
-                                ui.separator();
-                            }
+                            ui.add_space(16.0);
+                            render_spectrum_visualizer(
+                                ui,
+                                &mut ui_state.cfg_show_spectrum,
+                                    &mut ui_state.spectrum_attack_speed,
+                                    &mut ui_state.spectrum_release_speed,
+                                    &ui_state.cfg_spectrum_color_palette,
+                                &ui_state.spectrum_data,
+                                &mut ui_state.visualizer_state,
+                                true,
+                                ui_state.cfg_spectrum_stereo_mode,
+                                ui_state.cfg_spectrum_show_waterfall,
+                                ui_state.cfg_spectrum_show_labels,
+                            );
+                            ui.add_space(8.0);
+                            ui.separator();
 
                             // System/Sink Controls Section
                             if !ui_state.system_fader_values.is_empty() {
                                 ui.add_space(16.0);
-                                render_section_header(ui, "🔊 Audio Sinks", theme::ACCENT_BLUE);
-                                ui.add_space(8.0);
+                                let active_sinks = ui_state
+                                    .sink_display_order
+                                    .iter()
+                                    .filter(|&&display_idx| {
+                                        ui_state
+                                            .sink_visibility
+                                            .get(display_idx)
+                                            .copied()
+                                            .unwrap_or(true)
+                                            && ui_state
+                                                .system_available
+                                                .get(display_idx)
+                                                .copied()
+                                                .unwrap_or(false)
+                                    })
+                                    .count();
 
-                                for &display_idx in &ui_state.sink_display_order {
-                                    // Skip if not visible
-                                    if !ui_state
-                                        .sink_visibility
-                                        .get(display_idx)
-                                        .copied()
-                                        .unwrap_or(true)
-                                    {
-                                        continue;
-                                    }
+                                Frame::default()
+                                    .fill(theme::BG_SECONDARY)
+                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .inner_margin(Margin {
+                                        left: 12,
+                                        right: 12,
+                                        top: 8,
+                                        bottom: 8,
+                                    })
+                                    .corner_radius(CornerRadius::same(5))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            render_section_header(
+                                                ui,
+                                                "🔊 Audio Sinks",
+                                                theme::ACCENT_BLUE,
+                                            );
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Center),
+                                                |ui| {
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "{} active",
+                                                            active_sinks
+                                                        ))
+                                                        .size(11.0)
+                                                        .color(theme::TEXT_SECONDARY),
+                                                    );
+                                                },
+                                            );
+                                        });
+                                        ui.add_space(8.0);
 
-                                    let is_muted = ui_state.system_muted[display_idx];
-                                    let is_available = ui_state.system_available[display_idx];
-                                    let old_value = ui_state.system_fader_values[display_idx];
-                                    render_fader_with_mute(
-                                        ui,
-                                        &mut ui_state.system_fader_values[display_idx],
-                                        &ui_state.system_fader_labels[display_idx].1,
-                                        ui_state.system_fader_labels[display_idx].0,
-                                        theme::ACCENT_BLUE,
-                                        is_muted,
-                                        is_available,
-                                        None,
-                                    );
-                                    if old_value != ui_state.system_fader_values[display_idx] {
-                                        changed_faders.push((
-                                            true,
-                                            display_idx,
-                                            ui_state.system_fader_values[display_idx],
-                                        ));
-                                    }
-                                    ui.add_space(2.0);
-                                }
+                                        for &display_idx in &ui_state.sink_display_order {
+                                            // Skip if not visible
+                                            if !ui_state
+                                                .sink_visibility
+                                                .get(display_idx)
+                                                .copied()
+                                                .unwrap_or(true)
+                                            {
+                                                continue;
+                                            }
+
+                                            let is_muted = ui_state.system_muted[display_idx];
+                                            let is_available = ui_state.system_available[display_idx];
+                                            let old_value = ui_state.system_fader_values[display_idx];
+                                            render_fader_with_mute(
+                                                ui,
+                                                &mut ui_state.system_fader_values[display_idx],
+                                                &ui_state.system_fader_labels[display_idx].1,
+                                                ui_state.system_fader_labels[display_idx].0,
+                                                theme::ACCENT_BLUE,
+                                                is_muted,
+                                                is_available,
+                                                None,
+                                            );
+                                            if old_value != ui_state.system_fader_values[display_idx]
+                                            {
+                                                changed_faders.push((
+                                                    true,
+                                                    display_idx,
+                                                    ui_state.system_fader_values[display_idx],
+                                                ));
+                                            }
+                                            ui.add_space(2.0);
+                                        }
+                                    });
 
                                 ui.add_space(8.0);
                                 ui.separator();
@@ -90,48 +141,96 @@ pub fn render_faders_tab(
                             // Applications Controls Section
                             if !ui_state.app_fader_values.is_empty() {
                                 ui.add_space(16.0);
-                                render_section_header(ui, "🎵 Applications", theme::ACCENT_ORANGE);
-                                ui.add_space(8.0);
-
-                                for &display_idx in &ui_state.app_display_order {
-                                    // Skip if not visible
-                                    if !ui_state
-                                        .app_visibility
-                                        .get(display_idx)
-                                        .copied()
-                                        .unwrap_or(true)
-                                    {
-                                        continue;
-                                    }
-
-                                    let is_muted = ui_state.app_muted[display_idx];
-                                    let is_available = ui_state.app_available[display_idx];
-                                    let old_value = ui_state.app_fader_values[display_idx];
-                                    render_fader_with_mute(
-                                        ui,
-                                        &mut ui_state.app_fader_values[display_idx],
-                                        &ui_state.app_fader_labels[display_idx].1,
-                                        ui_state.app_fader_labels[display_idx].0,
-                                        theme::ACCENT_ORANGE,
-                                        is_muted,
-                                        is_available,
-                                        Some(
-                                            ui_state
-                                                .app_input_count
+                                let active_apps = ui_state
+                                    .app_display_order
+                                    .iter()
+                                    .filter(|&&display_idx| {
+                                        ui_state
+                                            .app_visibility
+                                            .get(display_idx)
+                                            .copied()
+                                            .unwrap_or(true)
+                                            && ui_state
+                                                .app_available
                                                 .get(display_idx)
                                                 .copied()
-                                                .unwrap_or(0),
-                                        ),
-                                    );
-                                    if old_value != ui_state.app_fader_values[display_idx] {
-                                        changed_faders.push((
-                                            false,
-                                            display_idx,
-                                            ui_state.app_fader_values[display_idx],
-                                        ));
-                                    }
-                                    ui.add_space(12.0);
-                                }
+                                                .unwrap_or(false)
+                                    })
+                                    .count();
+
+                                Frame::default()
+                                    .fill(theme::BG_SECONDARY)
+                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .inner_margin(Margin {
+                                        left: 12,
+                                        right: 12,
+                                        top: 8,
+                                        bottom: 8,
+                                    })
+                                    .corner_radius(CornerRadius::same(5))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            render_section_header(
+                                                ui,
+                                                "🎵 Applications",
+                                                theme::ACCENT_ORANGE,
+                                            );
+                                            ui.with_layout(
+                                                Layout::right_to_left(Align::Center),
+                                                |ui| {
+                                                    ui.label(
+                                                        RichText::new(format!(
+                                                            "{} active",
+                                                            active_apps
+                                                        ))
+                                                        .size(11.0)
+                                                        .color(theme::TEXT_SECONDARY),
+                                                    );
+                                                },
+                                            );
+                                        });
+                                        ui.add_space(8.0);
+
+                                        for &display_idx in &ui_state.app_display_order {
+                                            // Skip if not visible
+                                            if !ui_state
+                                                .app_visibility
+                                                .get(display_idx)
+                                                .copied()
+                                                .unwrap_or(true)
+                                            {
+                                                continue;
+                                            }
+
+                                            let is_muted = ui_state.app_muted[display_idx];
+                                            let is_available = ui_state.app_available[display_idx];
+                                            let old_value = ui_state.app_fader_values[display_idx];
+                                            render_fader_with_mute(
+                                                ui,
+                                                &mut ui_state.app_fader_values[display_idx],
+                                                &ui_state.app_fader_labels[display_idx].1,
+                                                ui_state.app_fader_labels[display_idx].0,
+                                                theme::ACCENT_ORANGE,
+                                                is_muted,
+                                                is_available,
+                                                Some(
+                                                    ui_state
+                                                        .app_input_count
+                                                        .get(display_idx)
+                                                        .copied()
+                                                        .unwrap_or(0),
+                                                ),
+                                            );
+                                            if old_value != ui_state.app_fader_values[display_idx] {
+                                                changed_faders.push((
+                                                    false,
+                                                    display_idx,
+                                                    ui_state.app_fader_values[display_idx],
+                                                ));
+                                            }
+                                            ui.add_space(12.0);
+                                        }
+                                    });
 
                                 ui.add_space(8.0);
                                 ui.separator();
@@ -253,7 +352,7 @@ fn render_fader_with_mute(
 
                     // Minus button
                     if ui.button("−").clicked() {
-                        *fader_value = fader_value.saturating_sub(10);
+                        *fader_value = fader_value.saturating_sub(1);
                     }
 
                     ui.add_space(4.0);
@@ -284,7 +383,7 @@ fn render_fader_with_mute(
 
                     // Plus button
                     if ui.button("+").clicked() {
-                        *fader_value = fader_value.saturating_add(10);
+                        *fader_value = fader_value.saturating_add(1);
                     }
                 });
 

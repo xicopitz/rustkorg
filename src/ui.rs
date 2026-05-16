@@ -62,6 +62,7 @@ pub struct UiState {
 
     // Settings UI state
     pub settings_dirty: bool,
+    pub save_button_clicked: bool,
     pub settings_save_message: Option<(String, std::time::Instant)>,
     pub new_sink_cc: String,
     pub new_sink_name: String,
@@ -89,12 +90,15 @@ pub struct UiState {
     // Spectrum analyzer state
     pub spectrum_data: SpectrumData,
     pub visualizer_state: VisualizerState,
+    pub spectrum_attack_speed: f32,
+    pub spectrum_release_speed: f32,
 
     // UI config for spectrum visibility
     pub cfg_show_spectrum: bool,
     pub cfg_spectrum_stereo_mode: bool, // true = stereo separate, false = combined
     pub cfg_spectrum_show_waterfall: bool,
     pub cfg_spectrum_show_labels: bool,
+    pub cfg_spectrum_color_palette: String,
     pub cfg_spectrum_sink_name: String, // Name of the sink to monitor
 }
 
@@ -155,7 +159,8 @@ impl UiState {
                 .theme
                 .clone()
                 .unwrap_or_else(|| "default".to_string()),
-            cfg_show_console: config.ui.show_console.unwrap_or(false),
+            cfg_show_console: config.ui.show_console.unwrap_or(false)
+                && config.logging.enabled.unwrap_or(true),
             cfg_max_console_lines: config.ui.max_console_lines.unwrap_or(1000),
             cfg_logging_enabled: config.logging.enabled.unwrap_or(true),
             cfg_log_level: config
@@ -170,6 +175,7 @@ impl UiState {
             cfg_applications: convert_hashmap_to_cc_vec(&config.midi_controls.applications),
             cfg_mute_buttons: convert_mute_buttons_hashmap(&config.midi_controls.mute_buttons),
             settings_dirty: false,
+            save_button_clicked: false,
             settings_save_message: None,
             new_sink_cc: String::new(),
             new_sink_name: String::new(),
@@ -187,10 +193,17 @@ impl UiState {
             app_display_order: (0..app_count).collect(),
             spectrum_data: SpectrumData::default(),
             visualizer_state: VisualizerState::default(),
+            spectrum_attack_speed: 26.0,
+            spectrum_release_speed: 9.0,
             cfg_show_spectrum: config.ui.show_spectrum.unwrap_or(true),
             cfg_spectrum_stereo_mode: config.ui.spectrum_stereo_mode.unwrap_or(false),
             cfg_spectrum_show_waterfall: config.ui.spectrum_show_waterfall.unwrap_or(false),
             cfg_spectrum_show_labels: config.ui.spectrum_show_labels.unwrap_or(true),
+            cfg_spectrum_color_palette: config
+                .ui
+                .spectrum_color_palette
+                .clone()
+                .unwrap_or_else(|| "neon".to_string()),
             cfg_spectrum_sink_name: config
                 .ui
                 .spectrum_sink_name
@@ -238,6 +251,11 @@ impl UiState {
     pub fn render_tabs(&mut self, ctx: &Context) {
         Self::apply_dark_theme(ctx);
 
+        // Auto-switch from Console tab if logging is disabled
+        if !self.cfg_logging_enabled && self.selected_tab == Tab::Console {
+            self.selected_tab = Tab::Control;
+        }
+
         TopBottomPanel::top("tab_panel")
             .frame(
                 Frame::default()
@@ -260,15 +278,17 @@ impl UiState {
                         self.selected_tab = Tab::Control;
                     }
 
-                    // Console tab
-                    if ui
-                        .selectable_label(
-                            self.selected_tab == Tab::Console,
-                            RichText::new("📋 Console").size(14.0),
-                        )
-                        .clicked()
-                    {
-                        self.selected_tab = Tab::Console;
+                    // Console tab (only show if logging enabled)
+                    if self.cfg_logging_enabled {
+                        if ui
+                            .selectable_label(
+                                self.selected_tab == Tab::Console,
+                                RichText::new("📋 Console").size(14.0),
+                            )
+                            .clicked()
+                        {
+                            self.selected_tab = Tab::Console;
+                        }
                     }
 
                     // Settings tab

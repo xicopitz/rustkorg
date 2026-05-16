@@ -3,7 +3,7 @@ use crate::midi::{MidiListener, MidiMessage, MidiOutput};
 use crate::pipewire_control::PipeWireController;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::ui::UiState;
-use log::info;
+use log::{info, warn};
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
@@ -103,26 +103,12 @@ impl MidiVolumeApp {
             cc_to_app_index.insert(*cc, i);
         }
 
-        // Load mute button mappings
-        let mute_button_mapping = config.get_mute_button_mappings();
+        // Validate mappings and load mute button mappings
+        let config_warnings = config.collect_validation_warnings(&cc_mapping);
+        let mute_button_mapping = config.get_mute_button_mappings(&cc_mapping);
 
         // Initialize MIDI output for LED feedback
-        let midi_output = match MidiOutput::new() {
-            Ok(output) => output,
-            Err(e) => {
-                if logging_enabled {
-                    info!(
-                        "Warning: Could not initialize MIDI output for LED feedback: {}",
-                        e
-                    );
-                }
-                // Try fallback, but if both fail, panic with clear message
-                panic!(
-                    "Failed to initialize MIDI output: {}. Is the nanoKontrol2 device connected?",
-                    e
-                );
-            }
-        };
+        let midi_output = MidiOutput::new();
 
         // Initialize spectrum analyzer
         let default_sink = config
@@ -169,6 +155,19 @@ impl MidiVolumeApp {
                 .clone()
                 .unwrap_or_else(|| "master_sink".to_string()),
         };
+
+        if logging_enabled && !app.midi_output.is_enabled() {
+            warn!("MIDI LED feedback is disabled because the nanoKontrol2 output port could not be opened");
+            app.ui_state
+                .add_console_message("Warning: MIDI LED feedback is disabled".to_string());
+        }
+
+        if logging_enabled {
+            for warning in config_warnings {
+                warn!("{}", warning);
+                app.ui_state.add_console_message(format!("Warning: {}", warning));
+            }
+        }
 
         // Initialize UI fader values for sink controls
         for (i, (cc, target)) in sink_labels.iter().enumerate() {
@@ -523,12 +522,13 @@ impl MidiVolumeApp {
             self.ui_state.cfg_window_width,
             self.ui_state.cfg_window_height,
             &self.ui_state.cfg_theme,
-            self.ui_state.cfg_show_console,
+            self.ui_state.cfg_show_console && self.ui_state.cfg_logging_enabled,
             self.ui_state.cfg_max_console_lines,
             self.ui_state.cfg_show_spectrum,
             self.ui_state.cfg_spectrum_stereo_mode,
             self.ui_state.cfg_spectrum_show_waterfall,
             self.ui_state.cfg_spectrum_show_labels,
+            &self.ui_state.cfg_spectrum_color_palette,
             &self.ui_state.cfg_spectrum_sink_name,
             self.ui_state.cfg_logging_enabled,
             &self.ui_state.cfg_log_level,
@@ -556,9 +556,11 @@ impl MidiVolumeApp {
                     self.applications_sink_search_interval_secs =
                         reloaded_config.audio.applications_sink_search.unwrap_or(10);
                     self.logging_enabled = reloaded_config.logging.enabled.unwrap_or(true);
+                    self.ui_state.cfg_logging_enabled = reloaded_config.logging.enabled.unwrap_or(true);
 
                     // Reload sink and app mappings
-                    self.cc_mapping = reloaded_config.get_cc_mapping();
+                    let cc_mapping = reloaded_config.get_cc_mapping();
+                    self.cc_mapping = cc_mapping.clone();
                     let sink_labels = reloaded_config.get_sink_labels();
                     let app_labels = reloaded_config.get_app_labels();
 
@@ -608,7 +610,15 @@ impl MidiVolumeApp {
                     }
 
                     // Reload mute button mappings
-                    self.mute_button_mapping = reloaded_config.get_mute_button_mappings();
+                    let config_warnings = reloaded_config.collect_validation_warnings(&cc_mapping);
+                    self.mute_button_mapping = reloaded_config.get_mute_button_mappings(&cc_mapping);
+
+                    if self.logging_enabled {
+                        for warning in config_warnings {
+                            warn!("{}", warning);
+                            self.ui_state.add_console_message(format!("Warning: {}", warning));
+                        }
+                    }
                 }
 
                 if self.logging_enabled {
@@ -672,10 +682,11 @@ impl eframe::App for MidiVolumeApp {
                 Vec::new()
             }
             crate::ui::Tab::Settings => {
-                let settings_changed = self.ui_state.render_settings_tab(ctx, false);
-                if settings_changed && self.ui_state.settings_dirty {
+                self.ui_state.render_settings_tab(ctx, false);
+                if self.ui_state.save_button_clicked {
                     // Save settings to config file
                     self.save_settings();
+                    self.ui_state.save_button_clicked = false;  // Reset flag after save
                 }
                 Vec::new()
             }
