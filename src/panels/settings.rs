@@ -826,9 +826,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 egui::ComboBox::from_id_salt(
                                                     "spectrum_color_palette",
                                                 )
-                                                .selected_text(
-                                                    &ui_state.cfg_spectrum_color_palette,
-                                                )
+                                                .selected_text(&ui_state.cfg_spectrum_color_palette)
                                                 .show_ui(ui, |ui| {
                                                     ui.selectable_value(
                                                         &mut ui_state.cfg_spectrum_color_palette,
@@ -1102,11 +1100,13 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                 if let Some((msg, instant)) = &ui_state.settings_save_message {
                                     if instant.elapsed().as_secs() < 3 {
                                         let is_success = msg.starts_with("SUCCESS:");
-                                        ui.label(RichText::new(msg).size(12.0).color(if is_success {
-                                            theme::ACCENT_GREEN
-                                        } else {
-                                            theme::ACCENT_RED
-                                        }));
+                                        ui.label(RichText::new(msg).size(12.0).color(
+                                            if is_success {
+                                                theme::ACCENT_GREEN
+                                            } else {
+                                                theme::ACCENT_RED
+                                            },
+                                        ));
                                     }
                                 }
                             });

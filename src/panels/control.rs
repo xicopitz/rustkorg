@@ -32,9 +32,9 @@ pub fn render_faders_tab(
                             render_spectrum_visualizer(
                                 ui,
                                 &mut ui_state.cfg_show_spectrum,
-                                    &mut ui_state.spectrum_attack_speed,
-                                    &mut ui_state.spectrum_release_speed,
-                                    &ui_state.cfg_spectrum_color_palette,
+                                &mut ui_state.spectrum_attack_speed,
+                                &mut ui_state.spectrum_release_speed,
+                                &ui_state.cfg_spectrum_color_palette,
                                 &ui_state.spectrum_data,
                                 &mut ui_state.visualizer_state,
                                 true,
@@ -110,8 +110,10 @@ pub fn render_faders_tab(
                                             }
 
                                             let is_muted = ui_state.system_muted[display_idx];
-                                            let is_available = ui_state.system_available[display_idx];
-                                            let old_value = ui_state.system_fader_values[display_idx];
+                                            let is_available =
+                                                ui_state.system_available[display_idx];
+                                            let old_value =
+                                                ui_state.system_fader_values[display_idx];
                                             render_fader_with_mute(
                                                 ui,
                                                 &mut ui_state.system_fader_values[display_idx],
@@ -122,7 +124,8 @@ pub fn render_faders_tab(
                                                 is_available,
                                                 None,
                                             );
-                                            if old_value != ui_state.system_fader_values[display_idx]
+                                            if old_value
+                                                != ui_state.system_fader_values[display_idx]
                                             {
                                                 changed_faders.push((
                                                     true,

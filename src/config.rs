@@ -120,7 +120,10 @@ impl Config {
                 Some(cc) => {
                     sink_ccs.insert(cc);
                 }
-                None => warnings.push(format!("Invalid sink mapping key '{}'; expected cc_<number>", key)),
+                None => warnings.push(format!(
+                    "Invalid sink mapping key '{}'; expected cc_<number>",
+                    key
+                )),
             }
         }
 
@@ -134,7 +137,10 @@ impl Config {
                         ));
                     }
                 }
-                None => warnings.push(format!("Invalid application mapping key '{}'; expected cc_<number>", key)),
+                None => warnings.push(format!(
+                    "Invalid application mapping key '{}'; expected cc_<number>",
+                    key
+                )),
             }
         }
 
@@ -148,7 +154,10 @@ impl Config {
                         ));
                     }
                 }
-                None => warnings.push(format!("Invalid mute button key '{}'; expected cc_<number>", key)),
+                None => warnings.push(format!(
+                    "Invalid mute button key '{}'; expected cc_<number>",
+                    key
+                )),
             }
         }
 
@@ -204,12 +213,17 @@ mod tests {
     #[test]
     fn validation_warns_and_filters_missing_mute_targets() {
         let mut config = Config::default();
-        config.midi_controls.mute_buttons.insert("cc_64".to_string(), 99);
+        config
+            .midi_controls
+            .mute_buttons
+            .insert("cc_64".to_string(), 99);
 
         let cc_mapping = config.get_cc_mapping();
         let warnings = config.collect_validation_warnings(&cc_mapping);
 
-        assert!(warnings.iter().any(|warning| warning.contains("CC64") && warning.contains("CC99")));
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("CC64") && warning.contains("CC99")));
 
         let mute_buttons = config.get_mute_button_mappings(&cc_mapping);
         assert!(!mute_buttons.contains_key(&64));
@@ -226,7 +240,12 @@ mod tests {
         let cc_mapping = config.get_cc_mapping();
         let warnings = config.collect_validation_warnings(&cc_mapping);
 
-        assert!(warnings.iter().any(|warning| warning.contains("CC0") && warning.contains("application mapping wins")));
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("CC0")
+                    && warning.contains("application mapping wins"))
+        );
     }
 }
 

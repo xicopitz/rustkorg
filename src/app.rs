@@ -165,7 +165,8 @@ impl MidiVolumeApp {
         if logging_enabled {
             for warning in config_warnings {
                 warn!("{}", warning);
-                app.ui_state.add_console_message(format!("Warning: {}", warning));
+                app.ui_state
+                    .add_console_message(format!("Warning: {}", warning));
             }
         }
 
@@ -556,7 +557,8 @@ impl MidiVolumeApp {
                     self.applications_sink_search_interval_secs =
                         reloaded_config.audio.applications_sink_search.unwrap_or(10);
                     self.logging_enabled = reloaded_config.logging.enabled.unwrap_or(true);
-                    self.ui_state.cfg_logging_enabled = reloaded_config.logging.enabled.unwrap_or(true);
+                    self.ui_state.cfg_logging_enabled =
+                        reloaded_config.logging.enabled.unwrap_or(true);
 
                     // Reload sink and app mappings
                     let cc_mapping = reloaded_config.get_cc_mapping();
@@ -611,12 +613,14 @@ impl MidiVolumeApp {
 
                     // Reload mute button mappings
                     let config_warnings = reloaded_config.collect_validation_warnings(&cc_mapping);
-                    self.mute_button_mapping = reloaded_config.get_mute_button_mappings(&cc_mapping);
+                    self.mute_button_mapping =
+                        reloaded_config.get_mute_button_mappings(&cc_mapping);
 
                     if self.logging_enabled {
                         for warning in config_warnings {
                             warn!("{}", warning);
-                            self.ui_state.add_console_message(format!("Warning: {}", warning));
+                            self.ui_state
+                                .add_console_message(format!("Warning: {}", warning));
                         }
                     }
                 }
@@ -686,7 +690,7 @@ impl eframe::App for MidiVolumeApp {
                 if self.ui_state.save_button_clicked {
                     // Save settings to config file
                     self.save_settings();
-                    self.ui_state.save_button_clicked = false;  // Reset flag after save
+                    self.ui_state.save_button_clicked = false; // Reset flag after save
                 }
                 Vec::new()
             }

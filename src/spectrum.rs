@@ -326,7 +326,6 @@ fn calculate_bands_from_ring(
     window: &[f32],
     fft_buffer: &mut [Complex<f32>],
 ) -> [f32; NUM_BANDS] {
-
     // Apply window and prepare FFT input (read from ring buffer in order)
     for i in 0..FFT_SIZE {
         let idx = (ring_pos + i) % FFT_SIZE;

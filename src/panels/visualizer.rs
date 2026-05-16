@@ -32,7 +32,13 @@ impl Default for VisualizerState {
 
 impl VisualizerState {
     /// Smoothly interpolate towards target values
-    pub fn update(&mut self, target: &SpectrumData, dt: f32, attack_speed: f32, release_speed: f32) {
+    pub fn update(
+        &mut self,
+        target: &SpectrumData,
+        dt: f32,
+        attack_speed: f32,
+        release_speed: f32,
+    ) {
         // Exponential mapping makes control changes more perceptible across the range.
         let attack = (1.0 - (-attack_speed * dt).exp()).clamp(0.0, 1.0);
         let release = (1.0 - (-release_speed * dt).exp()).clamp(0.0, 1.0);
