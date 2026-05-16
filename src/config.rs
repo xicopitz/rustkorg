@@ -1,7 +1,11 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+
+fn parse_cc_key(key: &str) -> Option<u8> {
+    key.strip_prefix("cc_")?.parse::<u8>().ok()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -49,6 +53,7 @@ pub struct UiConfig {
     pub spectrum_stereo_mode: Option<bool>,
     pub spectrum_show_waterfall: Option<bool>,
     pub spectrum_show_labels: Option<bool>,
+    pub spectrum_color_palette: Option<String>,
     pub spectrum_sink_name: Option<String>,
 }
 
@@ -106,6 +111,59 @@ impl Config {
         mapping
     }
 
+    pub fn collect_validation_warnings(&self, cc_mapping: &HashMap<u8, String>) -> Vec<String> {
+        let mut warnings = Vec::new();
+        let mut sink_ccs = HashSet::new();
+
+        for key in self.midi_controls.sinks.keys() {
+            match parse_cc_key(key) {
+                Some(cc) => {
+                    sink_ccs.insert(cc);
+                }
+                None => warnings.push(format!(
+                    "Invalid sink mapping key '{}'; expected cc_<number>",
+                    key
+                )),
+            }
+        }
+
+        for key in self.midi_controls.applications.keys() {
+            match parse_cc_key(key) {
+                Some(cc) => {
+                    if sink_ccs.contains(&cc) {
+                        warnings.push(format!(
+                            "CC{} is mapped to both a sink and an application; application mapping wins",
+                            cc
+                        ));
+                    }
+                }
+                None => warnings.push(format!(
+                    "Invalid application mapping key '{}'; expected cc_<number>",
+                    key
+                )),
+            }
+        }
+
+        for (key, target_cc) in &self.midi_controls.mute_buttons {
+            match parse_cc_key(key) {
+                Some(button_cc) => {
+                    if !cc_mapping.contains_key(target_cc) {
+                        warnings.push(format!(
+                            "Mute button CC{} targets unmapped CC{}; ignoring",
+                            button_cc, target_cc
+                        ));
+                    }
+                }
+                None => warnings.push(format!(
+                    "Invalid mute button key '{}'; expected cc_<number>",
+                    key
+                )),
+            }
+        }
+
+        warnings
+    }
+
     pub fn get_sink_labels(&self) -> Vec<(u8, String)> {
         // Returns sorted list of sink controls
         let mut controls = Vec::with_capacity(self.midi_controls.sinks.len());
@@ -134,17 +192,60 @@ impl Config {
         controls
     }
 
-    pub fn get_mute_button_mappings(&self) -> HashMap<u8, u8> {
+    pub fn get_mute_button_mappings(&self, cc_mapping: &HashMap<u8, String>) -> HashMap<u8, u8> {
         // Returns mapping of mute button CC to target fader CC
         let mut mappings = HashMap::with_capacity(self.midi_controls.mute_buttons.len());
         for (key, &target_cc) in &self.midi_controls.mute_buttons {
-            if let Some(cc_str) = key.strip_prefix("cc_") {
-                if let Ok(cc_num) = cc_str.parse::<u8>() {
+            if let Some(cc_num) = parse_cc_key(key) {
+                if cc_mapping.contains_key(&target_cc) {
                     mappings.insert(cc_num, target_cc);
                 }
             }
         }
         mappings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validation_warns_and_filters_missing_mute_targets() {
+        let mut config = Config::default();
+        config
+            .midi_controls
+            .mute_buttons
+            .insert("cc_64".to_string(), 99);
+
+        let cc_mapping = config.get_cc_mapping();
+        let warnings = config.collect_validation_warnings(&cc_mapping);
+
+        assert!(warnings
+            .iter()
+            .any(|warning| warning.contains("CC64") && warning.contains("CC99")));
+
+        let mute_buttons = config.get_mute_button_mappings(&cc_mapping);
+        assert!(!mute_buttons.contains_key(&64));
+    }
+
+    #[test]
+    fn validation_reports_duplicate_control_ccs() {
+        let mut config = Config::default();
+        config
+            .midi_controls
+            .applications
+            .insert("cc_0".to_string(), "chrome".to_string());
+
+        let cc_mapping = config.get_cc_mapping();
+        let warnings = config.collect_validation_warnings(&cc_mapping);
+
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("CC0")
+                    && warning.contains("application mapping wins"))
+        );
     }
 }
 
@@ -184,6 +285,7 @@ impl Default for Config {
                 spectrum_stereo_mode: Some(false),
                 spectrum_show_waterfall: Some(false),
                 spectrum_show_labels: Some(true),
+                spectrum_color_palette: Some("neon".to_string()),
                 spectrum_sink_name: Some("master_sink".to_string()),
             },
             logging: LoggingConfig {
@@ -201,6 +303,15 @@ impl Config {
     /// Save the configuration to a TOML file
     pub fn save_to_file(&self, path: &str) -> Result<()> {
         let toml_string = self.to_toml_string()?;
+
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent).with_context(|| {
+                    format!("Failed to create config directory: {}", parent.display())
+                })?;
+            }
+        }
+
         fs::write(path, toml_string)
             .with_context(|| format!("Failed to write config to: {}", path))?;
         Ok(())
@@ -353,6 +464,9 @@ impl Config {
         if let Some(labels) = self.ui.spectrum_show_labels {
             output.push_str(&format!("spectrum_show_labels = {}\n", labels));
         }
+        if let Some(ref palette) = self.ui.spectrum_color_palette {
+            output.push_str(&format!("spectrum_color_palette = \"{}\"\n", palette));
+        }
         output.push('\n');
 
         // Logging section
@@ -405,6 +519,7 @@ impl Config {
         spectrum_stereo_mode: bool,
         spectrum_show_waterfall: bool,
         spectrum_show_labels: bool,
+        spectrum_color_palette: &str,
         spectrum_sink_name: &str,
         logging_enabled: bool,
         log_level: &str,
@@ -451,6 +566,7 @@ impl Config {
                 spectrum_stereo_mode: Some(spectrum_stereo_mode),
                 spectrum_show_waterfall: Some(spectrum_show_waterfall),
                 spectrum_show_labels: Some(spectrum_show_labels),
+                spectrum_color_palette: Some(spectrum_color_palette.to_string()),
                 spectrum_sink_name: Some(spectrum_sink_name.to_string()),
             },
             logging: LoggingConfig {

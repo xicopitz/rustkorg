@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use log::error;
+use log::{error, warn};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -15,14 +15,24 @@ pub struct MidiListener {
 
 // MIDI output controller for sending LED feedback to the device
 pub struct MidiOutput {
-    output: Arc<Mutex<Option<midir::MidiOutputConnection>>>,
+    output: Option<Arc<Mutex<Option<midir::MidiOutputConnection>>>>,
 }
 
 impl MidiOutput {
-    pub fn new() -> Result<Self> {
-        let output = midir::MidiOutput::new("nanoKontrol2 Output")
-            .map_err(|e| anyhow!("Failed to create MIDI output: {}", e))?;
+    pub fn new() -> Self {
+        let output = match midir::MidiOutput::new("nanoKontrol2 Output") {
+            Ok(output) => output,
+            Err(e) => {
+                warn!("Failed to create MIDI output: {}", e);
+                return Self::disabled();
+            }
+        };
+
         let ports = output.ports();
+        let available_ports: Vec<String> = ports
+            .iter()
+            .filter_map(|port| output.port_name(port).ok())
+            .collect();
 
         let port_index = ports
             .iter()
@@ -36,25 +46,49 @@ impl MidiOutput {
                     })
                     .unwrap_or(false)
             })
-            .ok_or_else(|| anyhow!("nanoKontrol2 output not found"))?;
+            .unwrap_or_else(|| {
+                warn!(
+                    "nanoKontrol2 output not found. Available MIDI output ports: {:?}",
+                    available_ports
+                );
+                usize::MAX
+            });
 
-        let conn = output
-            .connect(&ports[port_index], "korg-volume-out")
-            .map_err(|e| anyhow!("Failed to connect to nanoKontrol2 MIDI output: {}", e))?;
+        if port_index == usize::MAX {
+            return Self::disabled();
+        }
 
-        Ok(MidiOutput {
-            output: Arc::new(Mutex::new(Some(conn))),
-        })
+        let conn = match output.connect(&ports[port_index], "korg-volume-out") {
+            Ok(conn) => conn,
+            Err(e) => {
+                warn!("Failed to connect to nanoKontrol2 MIDI output: {}", e);
+                return Self::disabled();
+            }
+        };
+
+        MidiOutput {
+            output: Some(Arc::new(Mutex::new(Some(conn)))),
+        }
+    }
+
+    fn disabled() -> Self {
+        MidiOutput { output: None }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.output.is_some()
     }
 
     /// Send a Control Change message to light up a button LED
     /// value: 0 = LED off, 127 = LED on
     pub fn send_cc(&self, cc: u8, value: u8) {
-        if let Ok(mut output_guard) = self.output.lock() {
-            if let Some(conn) = output_guard.as_mut() {
-                // Control Change message: 0xB0 = channel 0, followed by CC number and value
-                let message = [0xB0, cc, value];
-                let _ = conn.send(&message);
+        if let Some(output) = &self.output {
+            if let Ok(mut output_guard) = output.lock() {
+                if let Some(conn) = output_guard.as_mut() {
+                    // Control Change message: 0xB0 = channel 0, followed by CC number and value
+                    let message = [0xB0, cc, value];
+                    let _ = conn.send(&message);
+                }
             }
         }
     }

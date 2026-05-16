@@ -11,18 +11,11 @@ use app::MidiVolumeApp;
 use config::Config;
 
 fn main() -> Result<()> {
-    // Determine which config file to use (prefer fallback if it exists)
-    let fallback_path = shellexpand::tilde("~/.bin/audio/nanokontrol2/config.toml").to_string();
-    let primary_path = "config.toml".to_string();
+    // Single source of truth for config location
+    let config_path = shellexpand::tilde("~/.bin/audio/nanokontrol2/config.toml").to_string();
 
-    let config_path = if std::path::Path::new(&fallback_path).exists() {
-        fallback_path.clone()
-    } else {
-        primary_path.clone()
-    };
-
-    // Load config with fallback
-    let config = Config::load_with_fallback(&primary_path, &fallback_path)
+    // Load config from the fixed path
+    let config = Config::load_with_fallback(&config_path, &config_path)
         .unwrap_or_else(|_| Config::default());
 
     // Only initialize logging if enabled in config

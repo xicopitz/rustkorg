@@ -22,19 +22,6 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                         })
                         .fill(theme::BG_PRIMARY)
                         .show(ui, |ui| {
-                            // Show save message if present
-                            if let Some((msg, instant)) = &ui_state.settings_save_message {
-                                if instant.elapsed().as_secs() < 3 {
-                                    let is_success = msg.starts_with("SUCCESS:");
-                                    ui.label(RichText::new(msg).size(14.0).color(if is_success {
-                                        theme::ACCENT_GREEN
-                                    } else {
-                                        theme::ACCENT_RED
-                                    }));
-                                    ui.add_space(2.0);
-                                }
-                            }
-
                             // ===== MIDI CONTROLS SECTION =====
                             ui.add_space(8.0);
                             render_section_header(ui, "MIDI Controls", theme::ACCENT_BLUE);
@@ -826,6 +813,66 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 settings_changed = true;
                                             }
 
+                                            // Spectrum color palette
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new("Spectrum Colors:")
+                                                        .size(11.0)
+                                                        .color(theme::TEXT_SECONDARY),
+                                                );
+
+                                                let palette_before =
+                                                    ui_state.cfg_spectrum_color_palette.clone();
+                                                egui::ComboBox::from_id_salt(
+                                                    "spectrum_color_palette",
+                                                )
+                                                .selected_text(&ui_state.cfg_spectrum_color_palette)
+                                                .show_ui(ui, |ui| {
+                                                    ui.selectable_value(
+                                                        &mut ui_state.cfg_spectrum_color_palette,
+                                                        "classic".to_string(),
+                                                        "classic",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut ui_state.cfg_spectrum_color_palette,
+                                                        "neon".to_string(),
+                                                        "neon",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut ui_state.cfg_spectrum_color_palette,
+                                                        "ocean".to_string(),
+                                                        "ocean",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut ui_state.cfg_spectrum_color_palette,
+                                                        "fire".to_string(),
+                                                        "fire",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut ui_state.cfg_spectrum_color_palette,
+                                                        "sunset".to_string(),
+                                                        "sunset",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut ui_state.cfg_spectrum_color_palette,
+                                                        "forest".to_string(),
+                                                        "forest",
+                                                    );
+                                                    ui.selectable_value(
+                                                        &mut ui_state.cfg_spectrum_color_palette,
+                                                        "mono".to_string(),
+                                                        "mono",
+                                                    );
+                                                });
+
+                                                if palette_before
+                                                    != ui_state.cfg_spectrum_color_palette
+                                                {
+                                                    ui_state.settings_dirty = true;
+                                                    settings_changed = true;
+                                                }
+                                            });
+
                                             ui.add_space(8.0);
 
                                             // Select sink to monitor
@@ -917,6 +964,10 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .color(theme::TEXT_PRIMARY),
                                     );
                                     if old_logging != ui_state.cfg_logging_enabled {
+                                        if !ui_state.cfg_logging_enabled {
+                                            // Keep console visibility consistent when logging is disabled.
+                                            ui_state.cfg_show_console = false;
+                                        }
                                         ui_state.settings_dirty = true;
                                         settings_changed = true;
                                     }
@@ -1034,11 +1085,8 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     )
                                     .clicked()
                                 {
-                                    settings_changed = true;
-                                    ui_state.settings_dirty = true;
+                                    ui_state.save_button_clicked = true;
                                 }
-
-                                ui.add_space(16.0);
 
                                 if ui_state.settings_dirty {
                                     ui.label(
@@ -1046,6 +1094,20 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(12.0)
                                             .color(theme::ACCENT_ORANGE),
                                     );
+                                }
+
+                                // Show save message if present
+                                if let Some((msg, instant)) = &ui_state.settings_save_message {
+                                    if instant.elapsed().as_secs() < 3 {
+                                        let is_success = msg.starts_with("SUCCESS:");
+                                        ui.label(RichText::new(msg).size(12.0).color(
+                                            if is_success {
+                                                theme::ACCENT_GREEN
+                                            } else {
+                                                theme::ACCENT_RED
+                                            },
+                                        ));
+                                    }
                                 }
                             });
 

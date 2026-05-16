@@ -1,4 +1,4 @@
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::{num_complex::Complex, Fft, FftPlanner};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -179,8 +179,16 @@ fn run_analyzer(data: Arc<Mutex<SpectrumData>>, stop_flag: Arc<Mutex<bool>>, sou
     let mut ring_buffer_right = vec![0.0f32; FFT_SIZE];
     let mut ring_pos = 0usize;
 
+    // Reuse FFT resources to avoid per-frame allocations/planner work
+    let mut planner: FftPlanner<f32> = FftPlanner::new();
+    let fft = planner.plan_fft_forward(FFT_SIZE);
+    let window = build_hann_window();
+    let mut fft_buffer_left = vec![Complex::new(0.0, 0.0); FFT_SIZE];
+    let mut fft_buffer_right = vec![Complex::new(0.0, 0.0); FFT_SIZE];
+
     // Small read buffer for faster updates (stereo: 2 channels)
     let mut read_buffer = vec![0.0f32; HOP_SIZE * 2];
+    let mut byte_buffer = vec![0u8; HOP_SIZE * 2 * std::mem::size_of::<f32>()];
 
     // Peak decay only - no smoothing for immediate response
     let peak_decay = 0.92f32;
@@ -197,14 +205,11 @@ fn run_analyzer(data: Arc<Mutex<SpectrumData>>, stop_flag: Arc<Mutex<bool>>, sou
         }
 
         // Read a small chunk of stereo audio data
-        let byte_buffer: &mut [u8] = unsafe {
-            std::slice::from_raw_parts_mut(
-                read_buffer.as_mut_ptr() as *mut u8,
-                read_buffer.len() * std::mem::size_of::<f32>(),
-            )
-        };
+        if simple.read(&mut byte_buffer).is_err() {
+            continue;
+        }
 
-        if simple.read(byte_buffer).is_err() {
+        if !decode_f32_le_samples(&byte_buffer, &mut read_buffer) {
             continue;
         }
 
@@ -219,8 +224,20 @@ fn run_analyzer(data: Arc<Mutex<SpectrumData>>, stop_flag: Arc<Mutex<bool>>, sou
         }
 
         // Calculate bands for both channels
-        let bands_left = calculate_bands_from_ring(&ring_buffer_left, ring_pos);
-        let bands_right = calculate_bands_from_ring(&ring_buffer_right, ring_pos);
+        let bands_left = calculate_bands_from_ring(
+            &ring_buffer_left,
+            ring_pos,
+            &fft,
+            &window,
+            &mut fft_buffer_left,
+        );
+        let bands_right = calculate_bands_from_ring(
+            &ring_buffer_right,
+            ring_pos,
+            &fft,
+            &window,
+            &mut fft_buffer_right,
+        );
 
         // Update peaks for both channels
         let mut peaks_left = [0.0f32; NUM_BANDS];
@@ -302,18 +319,13 @@ fn calculate_bands(fft_output: &[Complex<f32>]) -> [f32; NUM_BANDS] {
 }
 
 /// Calculate bands from a ring buffer (used for both left and right channels)
-fn calculate_bands_from_ring(ring_buffer: &[f32], ring_pos: usize) -> [f32; NUM_BANDS] {
-    let mut planner: FftPlanner<f32> = FftPlanner::new();
-    let fft = planner.plan_fft_forward(FFT_SIZE);
-    let mut fft_buffer: Vec<Complex<f32>> = vec![Complex::new(0.0, 0.0); FFT_SIZE];
-
-    // Hanning window
-    let window: Vec<f32> = (0..FFT_SIZE)
-        .map(|i| {
-            0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos())
-        })
-        .collect();
-
+fn calculate_bands_from_ring(
+    ring_buffer: &[f32],
+    ring_pos: usize,
+    fft: &Arc<dyn Fft<f32>>,
+    window: &[f32],
+    fft_buffer: &mut [Complex<f32>],
+) -> [f32; NUM_BANDS] {
     // Apply window and prepare FFT input (read from ring buffer in order)
     for i in 0..FFT_SIZE {
         let idx = (ring_pos + i) % FFT_SIZE;
@@ -321,10 +333,32 @@ fn calculate_bands_from_ring(ring_buffer: &[f32], ring_pos: usize) -> [f32; NUM_
     }
 
     // Perform FFT
-    fft.process(&mut fft_buffer);
+    fft.process(fft_buffer);
 
     // Calculate band magnitudes
     calculate_bands(&fft_buffer)
+}
+
+fn build_hann_window() -> Vec<f32> {
+    (0..FFT_SIZE)
+        .map(|i| {
+            0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos())
+        })
+        .collect()
+}
+
+fn decode_f32_le_samples(bytes: &[u8], samples: &mut [f32]) -> bool {
+    let expected_len = samples.len() * std::mem::size_of::<f32>();
+    if bytes.len() != expected_len {
+        return false;
+    }
+
+    for (sample, chunk) in samples.iter_mut().zip(bytes.chunks_exact(4)) {
+        let sample_bytes = [chunk[0], chunk[1], chunk[2], chunk[3]];
+        *sample = f32::from_le_bytes(sample_bytes);
+    }
+
+    true
 }
 
 /// Get frequency in Hz for a band index
@@ -357,5 +391,31 @@ pub fn frequency_to_note(freq: f32) -> String {
         format!("{}{}", notes[note_index], octave)
     } else {
         format!("{:.0} Hz", freq)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_f32_le_samples_reads_expected_values() {
+        let samples = [1.0f32, -2.5f32, 0.25f32, 8.0f32];
+        let mut bytes = Vec::new();
+
+        for sample in samples {
+            bytes.extend_from_slice(&sample.to_le_bytes());
+        }
+
+        let mut decoded = [0.0f32; 4];
+        assert!(decode_f32_le_samples(&bytes, &mut decoded));
+        assert_eq!(decoded, samples);
+    }
+
+    #[test]
+    fn decode_f32_le_samples_rejects_wrong_length() {
+        let mut decoded = [1.0f32; 2];
+        assert!(!decode_f32_le_samples(&[0u8; 4], &mut decoded));
+        assert_eq!(decoded, [1.0f32; 2]);
     }
 }
