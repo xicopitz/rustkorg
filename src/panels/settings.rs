@@ -1,5 +1,5 @@
 use super::theme;
-use crate::ui::UiState;
+use crate::ui::{Tab, UiState};
 use egui::{
     CentralPanel, Color32, Context, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke,
 };
@@ -200,6 +200,28 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 }
                                             }
                                         }
+                                    });
+
+                                    ui.add_space(8.0);
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .button(
+                                                RichText::new("Auto-Assign Active Apps")
+                                                    .size(12.0)
+                                                    .color(theme::TEXT_PRIMARY),
+                                            )
+                                            .clicked()
+                                        {
+                                            ui_state.auto_assign_apps_clicked = true;
+                                        }
+
+                                        ui.label(
+                                            RichText::new(
+                                                "Scans current PipeWire app streams and maps them to free CCs",
+                                            )
+                                            .size(11.0)
+                                            .color(theme::TEXT_MUTED),
+                                        );
                                     });
                                 });
 
@@ -569,10 +591,10 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
 
                                     ui.add_space(8.0);
 
-                                    // Volume Curve
+                                    // Volume response mode
                                     ui.horizontal(|ui| {
                                         ui.label(
-                                            RichText::new("Volume Curve:")
+                                            RichText::new("Volume Response:")
                                                 .size(12.0)
                                                 .color(theme::TEXT_SECONDARY),
                                         );
@@ -587,8 +609,18 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 );
                                                 ui.selectable_value(
                                                     &mut ui_state.cfg_volume_curve,
-                                                    "exponential".to_string(),
-                                                    "exponential",
+                                                    "logarithmic".to_string(),
+                                                    "logarithmic",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut ui_state.cfg_volume_curve,
+                                                    "soft-takeover".to_string(),
+                                                    "soft-takeover",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut ui_state.cfg_volume_curve,
+                                                    "inertia".to_string(),
+                                                    "inertia",
                                                 );
                                             });
                                         if curve_before != ui_state.cfg_volume_curve {
@@ -740,15 +772,21 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
 
                                     ui.add_space(8.0);
 
-                                    // Show console
+                                    // Show console tab
                                     let old_show_console = ui_state.cfg_show_console;
                                     ui.checkbox(
                                         &mut ui_state.cfg_show_console,
-                                        RichText::new("Show Console by Default")
+                                        RichText::new("Show Console Tab")
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
                                     if old_show_console != ui_state.cfg_show_console {
+                                        // Apply tab visibility change immediately in the same frame.
+                                        if !ui_state.cfg_show_console
+                                            && ui_state.selected_tab == Tab::Console
+                                        {
+                                            ui_state.selected_tab = Tab::Control;
+                                        }
                                         ui_state.settings_dirty = true;
                                         settings_changed = true;
                                     }
@@ -766,6 +804,88 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     if old_show_spectrum != ui_state.cfg_show_spectrum {
                                         ui_state.settings_dirty = true;
                                         settings_changed = true;
+                                    }
+
+                                    ui.add_space(8.0);
+
+                                    // Show CC assignments strip
+                                    let old_show_cc_assignments = ui_state.show_cc_assignments;
+                                    ui.checkbox(
+                                        &mut ui_state.show_cc_assignments,
+                                        RichText::new("Show CC Assignments")
+                                            .size(13.0)
+                                            .color(theme::TEXT_PRIMARY),
+                                    );
+                                    if old_show_cc_assignments != ui_state.show_cc_assignments {
+                                        ui_state.settings_dirty = true;
+                                        settings_changed = true;
+                                    }
+
+                                    ui.add_space(8.0);
+
+                                    // Show device health panel
+                                    let old_show_device_health = ui_state.show_device_health;
+                                    ui.checkbox(
+                                        &mut ui_state.show_device_health,
+                                        RichText::new("Show Device Health")
+                                            .size(13.0)
+                                            .color(theme::TEXT_PRIMARY),
+                                    );
+                                    if old_show_device_health != ui_state.show_device_health {
+                                        ui_state.settings_dirty = true;
+                                        settings_changed = true;
+                                    }
+
+                                    // ---- System Tray ----
+                                    ui.add_space(8.0);
+                                    ui.label(
+                                        RichText::new("[SYSTEM TRAY]")
+                                            .size(15.0)
+                                            .color(theme::ACCENT_ORANGE)
+                                            .strong(),
+                                    );
+                                    ui.add_space(4.0);
+                                    let old_tray = ui_state.enable_tray;
+                                    ui.checkbox(
+                                        &mut ui_state.enable_tray,
+                                        RichText::new("Enable system tray icon")
+                                            .size(13.0)
+                                            .color(theme::TEXT_PRIMARY),
+                                    );
+                                    if old_tray != ui_state.enable_tray {
+                                        ui_state.settings_dirty = true;
+                                        settings_changed = true;
+                                    }
+                                    if ui_state.enable_tray {
+                                        let old_close = ui_state.close_to_tray;
+                                        ui.checkbox(
+                                            &mut ui_state.close_to_tray,
+                                            RichText::new("Minimize to tray on close")
+                                                .size(12.0)
+                                                .color(theme::TEXT_SECONDARY),
+                                        );
+                                        if old_close != ui_state.close_to_tray {
+                                            ui_state.settings_dirty = true;
+                                            settings_changed = true;
+                                        }
+                                        let old_start = ui_state.start_minimized;
+                                        ui.checkbox(
+                                            &mut ui_state.start_minimized,
+                                            RichText::new("Start minimized to tray")
+                                                .size(12.0)
+                                                .color(theme::TEXT_SECONDARY),
+                                        );
+                                        if old_start != ui_state.start_minimized {
+                                            ui_state.settings_dirty = true;
+                                            settings_changed = true;
+                                        }
+                                        ui.label(
+                                            RichText::new(
+                                                "Note: Tray toggle takes effect after Save + Restart",
+                                            )
+                                            .size(11.0)
+                                            .color(theme::TEXT_MUTED),
+                                        );
                                     }
 
                                     if ui_state.cfg_show_spectrum {
