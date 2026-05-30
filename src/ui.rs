@@ -63,6 +63,7 @@ pub struct UiState {
     // Settings UI state
     pub settings_dirty: bool,
     pub save_button_clicked: bool,
+    pub auto_assign_apps_clicked: bool,
     pub settings_save_message: Option<(String, std::time::Instant)>,
     pub new_sink_cc: String,
     pub new_sink_name: String,
@@ -86,6 +87,9 @@ pub struct UiState {
     pub sink_display_order: Vec<usize>, // Track sink display order (indices into system_fader_labels)
     pub app_visibility: Vec<bool>,      // Track which apps are visible
     pub app_display_order: Vec<usize>,  // Track app display order (indices into app_fader_labels)
+    pub show_cc_assignments: bool,
+    pub cc_assignments_expanded: bool,
+    pub show_device_health: bool,
 
     // Spectrum analyzer state
     pub spectrum_data: SpectrumData,
@@ -100,6 +104,20 @@ pub struct UiState {
     pub cfg_spectrum_show_labels: bool,
     pub cfg_spectrum_color_palette: String,
     pub cfg_spectrum_sink_name: String, // Name of the sink to monitor
+
+    // Peak meter state — per-fader peak hold & decay
+    pub system_peak_values: Vec<u8>,
+    pub system_peak_times: Vec<std::time::Instant>,
+    pub app_peak_values: Vec<u8>,
+    pub app_peak_times: Vec<std::time::Instant>,
+
+    // Runtime device health metrics
+    pub health_midi_input_connected: bool,
+    pub health_midi_output_connected: bool,
+    pub health_pipewire_default_sink: String,
+    pub health_audio_failure_count: u64,
+    pub health_midi_retry_count: u32,
+    pub health_last_error: Option<String>,
 }
 
 impl UiState {
@@ -176,6 +194,7 @@ impl UiState {
             cfg_mute_buttons: convert_mute_buttons_hashmap(&config.midi_controls.mute_buttons),
             settings_dirty: false,
             save_button_clicked: false,
+            auto_assign_apps_clicked: false,
             settings_save_message: None,
             new_sink_cc: String::new(),
             new_sink_name: String::new(),
@@ -191,6 +210,9 @@ impl UiState {
             sink_display_order: (0..system_count).collect(),
             app_visibility: vec![true; app_count],
             app_display_order: (0..app_count).collect(),
+            show_cc_assignments: config.ui.show_cc_assignments.unwrap_or(true),
+            cc_assignments_expanded: true,
+            show_device_health: config.ui.show_device_health.unwrap_or(true),
             spectrum_data: SpectrumData::default(),
             visualizer_state: VisualizerState::default(),
             spectrum_attack_speed: 26.0,
@@ -209,6 +231,20 @@ impl UiState {
                 .spectrum_sink_name
                 .clone()
                 .unwrap_or_else(|| "master_sink".to_string()),
+            system_peak_values: vec![0u8; system_count],
+            system_peak_times: vec![std::time::Instant::now(); system_count],
+            app_peak_values: vec![0u8; app_count],
+            app_peak_times: vec![std::time::Instant::now(); app_count],
+            health_midi_input_connected: true,
+            health_midi_output_connected: true,
+            health_pipewire_default_sink: config
+                .audio
+                .default_sink
+                .clone()
+                .unwrap_or_else(|| "master_sink".to_string()),
+            health_audio_failure_count: 0,
+            health_midi_retry_count: 0,
+            health_last_error: None,
         }
     }
 
@@ -251,8 +287,10 @@ impl UiState {
     pub fn render_tabs(&mut self, ctx: &Context) {
         Self::apply_dark_theme(ctx);
 
-        // Auto-switch from Console tab if logging is disabled
-        if !self.cfg_logging_enabled && self.selected_tab == Tab::Console {
+        // Auto-switch from Console tab if it is no longer available.
+        if (!self.cfg_logging_enabled || !self.cfg_show_console)
+            && self.selected_tab == Tab::Console
+        {
             self.selected_tab = Tab::Control;
         }
 
@@ -278,8 +316,8 @@ impl UiState {
                         self.selected_tab = Tab::Control;
                     }
 
-                    // Console tab (only show if logging enabled)
-                    if self.cfg_logging_enabled {
+                    // Console tab (only show when explicitly enabled and logging is on)
+                    if self.cfg_logging_enabled && self.cfg_show_console {
                         if ui
                             .selectable_label(
                                 self.selected_tab == Tab::Console,

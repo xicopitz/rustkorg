@@ -1,5 +1,4 @@
-use anyhow::{anyhow, Result};
-use log::{error, warn};
+use log::warn;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -7,6 +6,10 @@ use std::time::Duration;
 #[derive(Debug, Clone, Copy)]
 pub enum MidiMessage {
     ControlChange { cc: u8, value: u8 },
+    /// Device was found and connected successfully.
+    Connected,
+    /// Device was unplugged or could not be found; reconnecting in background.
+    Disconnected,
 }
 
 pub struct MidiListener {
@@ -105,74 +108,122 @@ impl MidiOutput {
 }
 
 impl MidiListener {
-    pub fn start() -> Result<(Self, mpsc::Receiver<MidiMessage>)> {
+    /// Start the background MIDI listener thread. Always succeeds — the thread
+    /// handles reconnection internally and reports status via `MidiMessage::Connected`
+    /// / `MidiMessage::Disconnected` on the returned channel.
+    pub fn start() -> (Self, mpsc::Receiver<MidiMessage>) {
         let (tx, rx) = mpsc::channel();
         let tx_clone = tx.clone();
 
         thread::spawn(move || {
-            if let Err(e) = Self::listen_loop(tx_clone) {
-                error!("MIDI listener error: {}", e);
-            }
+            Self::listen_loop(tx_clone);
         });
 
-        Ok((MidiListener { _tx: tx }, rx))
+        (MidiListener { _tx: tx }, rx)
     }
 
-    fn listen_loop(tx: mpsc::Sender<MidiMessage>) -> Result<()> {
-        let input = midir::MidiInput::new("nanoKontrol2 Input")?;
+    fn find_port_index<T: midir::MidiIO>(io: &T, ports: &[T::Port]) -> Option<usize> {
+        ports.iter().position(|port| {
+            io.port_name(port)
+                .ok()
+                .map(|name| {
+                    let lower = name.to_lowercase();
+                    lower.contains("nanokontrol") || lower.contains("korg")
+                })
+                .unwrap_or(false)
+        })
+    }
 
-        // Find and connect to nanoKontrol2
-        let ports = input.ports();
+    fn listen_loop(tx: mpsc::Sender<MidiMessage>) {
+        let mut was_connected = false;
 
-        let port_index = ports
-            .iter()
-            .position(|port| {
-                input
-                    .port_name(port)
-                    .ok()
-                    .map(|name| {
-                        let lower = name.to_lowercase();
-                        lower.contains("nanokontrol") || lower.contains("korg")
-                    })
-                    .unwrap_or(false)
-            })
-            .ok_or_else(|| anyhow!("nanoKontrol2 device not found"))?;
+        'outer: loop {
+            // --- Try to open input ---
+            let input = match midir::MidiInput::new("nanoKontrol2 Input") {
+                Ok(i) => i,
+                Err(e) => {
+                    warn!("MIDI input init failed: {}", e);
+                    thread::sleep(Duration::from_secs(3));
+                    continue;
+                }
+            };
 
-        // Create a simple callback that logs events
-        let tx_clone = tx.clone();
-        let _conn = input
-            .connect(
+            let ports = input.ports();
+            let Some(port_index) = Self::find_port_index(&input, &ports) else {
+                // Device not found; notify once then wait before retry
+                if was_connected {
+                    if tx.send(MidiMessage::Disconnected).is_err() {
+                        break 'outer;
+                    }
+                    was_connected = false;
+                }
+                thread::sleep(Duration::from_secs(3));
+                continue;
+            };
+
+            // --- Connect ---
+            let tx_cb = tx.clone();
+            let conn = match input.connect(
                 &ports[port_index],
                 "korg-volume",
-                move |_stamp: u64, data: &[u8], _: &mut ()| {
+                move |_stamp, data, _| {
                     if data.len() >= 3 {
-                        let _ = Self::parse_message(data, &tx_clone);
+                        Self::parse_message(data, &tx_cb);
                     }
                 },
                 (),
-            )
-            .map_err(|e| anyhow!("Failed to connect to MIDI: {:?}", e))?;
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    warn!("MIDI connect failed: {:?}", e);
+                    thread::sleep(Duration::from_secs(3));
+                    continue;
+                }
+            };
 
-        // Keep the connection alive indefinitely
-        loop {
-            thread::sleep(Duration::from_secs(1));
+            // Notify app that device is connected
+            if !was_connected {
+                if tx.send(MidiMessage::Connected).is_err() {
+                    break 'outer;
+                }
+                was_connected = true;
+            }
+
+            // --- Poll to detect device removal ---
+            loop {
+                thread::sleep(Duration::from_secs(2));
+
+                let Ok(check) = midir::MidiInput::new("nanoKontrol2 Check") else {
+                    break;
+                };
+                let check_ports = check.ports();
+                if Self::find_port_index(&check, &check_ports).is_none() {
+                    // Device was unplugged
+                    break;
+                }
+            }
+
+            // Device gone — clean up and notify
+            drop(conn);
+            if was_connected {
+                if tx.send(MidiMessage::Disconnected).is_err() {
+                    break 'outer;
+                }
+                was_connected = false;
+            }
+
+            // Brief pause before the next reconnect attempt
+            thread::sleep(Duration::from_secs(3));
         }
     }
 
-    fn parse_message(data: &[u8], tx: &mpsc::Sender<MidiMessage>) -> Result<()> {
-        let status = data[0];
-        let controller = data[1];
-        let value = data[2];
-
-        if status == 0xB0 {
-            // Control Change on channel 0 - send all CC messages
-            let msg = MidiMessage::ControlChange {
-                cc: controller,
-                value,
-            };
-            let _ = tx.send(msg);
+    fn parse_message(data: &[u8], tx: &mpsc::Sender<MidiMessage>) {
+        if data[0] == 0xB0 {
+            // Control Change on channel 0
+            let _ = tx.send(MidiMessage::ControlChange {
+                cc: data[1],
+                value: data[2],
+            });
         }
-
-        Ok(())
     }
 }

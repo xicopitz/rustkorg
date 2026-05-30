@@ -11,6 +11,7 @@ categories = ["multimedia::audio", "hardware-support"]
 
 [dependencies]
 midir = "0.9"
+ksni = "0.2"
 egui = "0.33"
 eframe = { version = "0.33", features = ["default_fonts"] }
 tokio = { version = "1", features = ["full"] }

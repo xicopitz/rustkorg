@@ -4,6 +4,7 @@ mod midi;
 pub mod panels;
 mod pipewire_control;
 pub mod spectrum;
+mod tray;
 mod ui;
 
 use anyhow::Result;

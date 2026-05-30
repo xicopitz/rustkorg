@@ -49,12 +49,17 @@ pub struct UiConfig {
     pub theme: Option<String>,
     pub show_console: Option<bool>,
     pub max_console_lines: Option<usize>,
+    pub show_cc_assignments: Option<bool>,
+    pub show_device_health: Option<bool>,
     pub show_spectrum: Option<bool>,
     pub spectrum_stereo_mode: Option<bool>,
     pub spectrum_show_waterfall: Option<bool>,
     pub spectrum_show_labels: Option<bool>,
     pub spectrum_color_palette: Option<String>,
     pub spectrum_sink_name: Option<String>,
+    pub enable_tray: Option<bool>,
+    pub close_to_tray: Option<bool>,
+    pub start_minimized: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,12 +286,17 @@ impl Default for Config {
                 theme: Some("default".to_string()),
                 show_console: Some(false),
                 max_console_lines: Some(1000),
+                show_cc_assignments: Some(true),
+                show_device_health: Some(true),
                 show_spectrum: Some(true),
                 spectrum_stereo_mode: Some(false),
                 spectrum_show_waterfall: Some(false),
                 spectrum_show_labels: Some(true),
                 spectrum_color_palette: Some("neon".to_string()),
                 spectrum_sink_name: Some("master_sink".to_string()),
+                enable_tray: Some(false),
+                close_to_tray: Some(false),
+                start_minimized: Some(false),
             },
             logging: LoggingConfig {
                 enabled: Some(true),
@@ -410,7 +420,9 @@ impl Config {
             output.push_str(&format!("volume_control_mode = \"{}\"\n", mode));
         }
         output.push('\n');
-        output.push_str("# Volume curve (linear/exponential)\n");
+        output.push_str(
+            "# Volume response mode (linear/logarithmic/soft-takeover/inertia)\n",
+        );
         if let Some(ref curve) = self.audio.volume_curve {
             output.push_str(&format!("volume_curve = \"{}\"\n", curve));
         }
@@ -451,6 +463,16 @@ impl Config {
             output.push_str(&format!("max_console_lines = {}\n", lines));
         }
         output.push('\n');
+        output.push_str("# Show CC assignment strip in Control panel\n");
+        if let Some(show) = self.ui.show_cc_assignments {
+            output.push_str(&format!("show_cc_assignments = {}\n", show));
+        }
+        output.push('\n');
+        output.push_str("# Show device health in Control panel\n");
+        if let Some(show) = self.ui.show_device_health {
+            output.push_str(&format!("show_device_health = {}\n", show));
+        }
+        output.push('\n');
         output.push_str("# Spectrum analyzer settings\n");
         if let Some(show) = self.ui.show_spectrum {
             output.push_str(&format!("show_spectrum = {}\n", show));
@@ -466,6 +488,22 @@ impl Config {
         }
         if let Some(ref palette) = self.ui.spectrum_color_palette {
             output.push_str(&format!("spectrum_color_palette = \"{}\"\n", palette));
+        }
+        if let Some(ref sink_name) = self.ui.spectrum_sink_name {
+            output.push_str(&format!("spectrum_sink_name = \"{}\"\n", sink_name));
+        }
+        output.push('\n');
+
+        // System tray settings
+        output.push_str("# System tray icon\n");
+        if let Some(tray) = self.ui.enable_tray {
+            output.push_str(&format!("enable_tray = {}\n", tray));
+        }
+        if let Some(close) = self.ui.close_to_tray {
+            output.push_str(&format!("close_to_tray = {}\n", close));
+        }
+        if let Some(start) = self.ui.start_minimized {
+            output.push_str(&format!("start_minimized = {}\n", start));
         }
         output.push('\n');
 
@@ -515,6 +553,8 @@ impl Config {
         theme: &str,
         show_console: bool,
         max_console_lines: usize,
+        show_cc_assignments: bool,
+        show_device_health: bool,
         show_spectrum: bool,
         spectrum_stereo_mode: bool,
         spectrum_show_waterfall: bool,
@@ -526,6 +566,9 @@ impl Config {
         timestamps: bool,
         log_fader_events: bool,
         log_device_info: bool,
+        enable_tray: bool,
+        close_to_tray: bool,
+        start_minimized: bool,
     ) -> Self {
         let mut sinks_map = HashMap::new();
         for (cc, name) in sinks {
@@ -562,12 +605,17 @@ impl Config {
                 theme: Some(theme.to_string()),
                 show_console: Some(show_console),
                 max_console_lines: Some(max_console_lines),
+                show_cc_assignments: Some(show_cc_assignments),
+                show_device_health: Some(show_device_health),
                 show_spectrum: Some(show_spectrum),
                 spectrum_stereo_mode: Some(spectrum_stereo_mode),
                 spectrum_show_waterfall: Some(spectrum_show_waterfall),
                 spectrum_show_labels: Some(spectrum_show_labels),
                 spectrum_color_palette: Some(spectrum_color_palette.to_string()),
                 spectrum_sink_name: Some(spectrum_sink_name.to_string()),
+                enable_tray: Some(enable_tray),
+                close_to_tray: Some(close_to_tray),
+                start_minimized: Some(start_minimized),
             },
             logging: LoggingConfig {
                 enabled: Some(logging_enabled),
