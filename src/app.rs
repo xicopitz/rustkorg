@@ -57,6 +57,31 @@ pub struct MidiVolumeApp {
 }
 
 impl MidiVolumeApp {
+    fn build_tray_cc_assignments(&self) -> Vec<String> {
+        let mut rows: Vec<(u8, String)> = self
+            .ui_state
+            .cfg_applications
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| self.ui_state.app_available.get(*idx).copied().unwrap_or(false))
+            .map(|(_, (cc, name))| (*cc, format!("CC{} -> {}", cc, name)))
+            .collect();
+
+        rows.sort_by_key(|(cc, _)| *cc);
+        rows.into_iter().map(|(_, row)| row).collect()
+    }
+
+    fn refresh_tray_state(&self) {
+        if let Some(handle) = &self.tray_handle {
+            let visible = self.window_visible;
+            let cc_assignments = self.build_tray_cc_assignments();
+            handle.update(move |tray| {
+                tray.visible = visible;
+                tray.cc_assignments = cc_assignments;
+            });
+        }
+    }
+
     fn initialize_midi_listener() -> (MidiListener, mpsc::Receiver<MidiMessage>) {
         MidiListener::start()
     }
@@ -261,6 +286,8 @@ impl MidiVolumeApp {
             self.cc_types.insert(*cc, false);
             self.cc_to_app_index.insert(*cc, idx);
         }
+
+        self.refresh_tray_state();
     }
 
     fn auto_assign_active_apps(&mut self) {
@@ -580,9 +607,13 @@ impl MidiVolumeApp {
 
         // Initialize system tray if enabled
         if enable_tray {
-            if let Some((handle, tray_rx)) = crate::tray::init_tray(!start_minimized) {
+            if let Some((handle, tray_rx)) = crate::tray::init_tray(
+                !start_minimized,
+                app.build_tray_cc_assignments(),
+            ) {
                 app.tray_handle = Some(handle);
                 app.tray_rx = Some(tray_rx);
+                app.refresh_tray_state();
             } else if logging_enabled {
                 app.ui_state
                     .add_console_message("Warning: System tray unavailable".to_string());
@@ -913,6 +944,8 @@ impl MidiVolumeApp {
                 self.ui_state.app_available[i] = is_available;
                 self.ui_state.app_input_count[i] = input_count;
             }
+
+            self.refresh_tray_state();
         } else {
             warn!("Failed to lock PipeWire controller during availability check");
         }
@@ -1053,11 +1086,14 @@ impl MidiVolumeApp {
                 // Toggle system tray on/off if enable_tray setting changed
                 match (self.tray_handle.is_some(), self.ui_state.enable_tray) {
                     (false, true) => {
-                        if let Some((handle, rx)) =
-                            crate::tray::init_tray(self.window_visible)
+                        if let Some((handle, rx)) = crate::tray::init_tray(
+                            self.window_visible,
+                            self.build_tray_cc_assignments(),
+                        )
                         {
                             self.tray_handle = Some(handle);
                             self.tray_rx = Some(rx);
+                            self.refresh_tray_state();
                         }
                     }
                     (true, false) => {
@@ -1109,12 +1145,11 @@ impl eframe::App for MidiVolumeApp {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(
                         self.window_visible,
                     ));
-                    if let Some(handle) = &self.tray_handle {
-                        let visible = self.window_visible;
-                        handle.update(move |tray| {
-                            tray.visible = visible;
-                        });
-                    }
+                    self.refresh_tray_state();
+                }
+                crate::tray::TrayCommand::AutoAssignApps => {
+                    self.auto_assign_active_apps();
+                    self.refresh_tray_state();
                 }
                 crate::tray::TrayCommand::Quit => {
                     if self.ui_state.settings_dirty {
@@ -1137,11 +1172,7 @@ impl eframe::App for MidiVolumeApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.window_visible = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            if let Some(handle) = &self.tray_handle {
-                handle.update(|tray| {
-                    tray.visible = false;
-                });
-            }
+            self.refresh_tray_state();
         }
 
         // --- Minimize-to-tray intercept ---
@@ -1155,11 +1186,7 @@ impl eframe::App for MidiVolumeApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             self.window_visible = false;
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
-            if let Some(handle) = &self.tray_handle {
-                handle.update(|tray| {
-                    tray.visible = false;
-                });
-            }
+            self.refresh_tray_state();
         }
 
         // Check for window size changes and apply them

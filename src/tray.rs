@@ -5,6 +5,8 @@ use std::sync::mpsc;
 pub enum TrayCommand {
     /// Toggle window visibility.
     ShowHide,
+    /// Auto-assign CCs for active applications.
+    AutoAssignApps,
     /// Quit the application.
     Quit,
 }
@@ -14,6 +16,8 @@ pub struct AppTray {
     pub tx: mpsc::SyncSender<TrayCommand>,
     /// Whether the main window is currently visible (used for menu label).
     pub visible: bool,
+    /// Read-only rows showing active app CC mappings.
+    pub cc_assignments: Vec<String>,
 }
 
 impl ksni::Tray for AppTray {
@@ -52,6 +56,43 @@ impl ksni::Tray for AppTray {
             }
             .into(),
             StandardItem {
+                label: "Auto-Assign Active Apps".into(),
+                activate: Box::new(|this: &mut AppTray| {
+                    let _ = this.tx.send(TrayCommand::AutoAssignApps);
+                }),
+                ..Default::default()
+            }
+            .into(),
+            StandardItem {
+                label: "Active App Mappings".into(),
+                ..Default::default()
+            }
+            .into(),
+            if self.cc_assignments.is_empty() {
+                StandardItem {
+                    label: "No active app mappings".into(),
+                    ..Default::default()
+                }
+                .into()
+            } else {
+                SubMenu {
+                    label: "Mappings".into(),
+                    submenu: self
+                        .cc_assignments
+                        .iter()
+                        .map(|entry| {
+                            StandardItem {
+                                label: entry.clone(),
+                                ..Default::default()
+                            }
+                            .into()
+                        })
+                        .collect(),
+                    ..Default::default()
+                }
+                .into()
+            },
+            StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|this: &mut AppTray| {
                     let _ = this.tx.send(TrayCommand::Quit);
@@ -69,9 +110,14 @@ impl ksni::Tray for AppTray {
 /// If D-Bus is unavailable the spawned service thread will log a warning and exit.
 pub fn init_tray(
     visible: bool,
+    cc_assignments: Vec<String>,
 ) -> Option<(ksni::Handle<AppTray>, mpsc::Receiver<TrayCommand>)> {
     let (tx, rx) = mpsc::sync_channel(32);
-    let tray = AppTray { tx, visible };
+    let tray = AppTray {
+        tx,
+        visible,
+        cc_assignments,
+    };
     let svc = ksni::TrayService::new(tray);
     let handle = svc.handle();
     std::thread::spawn(move || {
