@@ -1,4 +1,5 @@
 use std::sync::mpsc;
+use ksni::blocking::TrayMethods;
 
 /// Commands sent from tray menu items to the main app thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,23 +108,22 @@ impl ksni::Tray for AppTray {
 /// Start the system tray in the background.
 ///
 /// Returns a handle + command receiver.
-/// If D-Bus is unavailable the spawned service thread will log a warning and exit.
+/// If D-Bus is unavailable this returns None.
 pub fn init_tray(
     visible: bool,
     cc_assignments: Vec<String>,
-) -> Option<(ksni::Handle<AppTray>, mpsc::Receiver<TrayCommand>)> {
+) -> Option<(ksni::blocking::Handle<AppTray>, mpsc::Receiver<TrayCommand>)> {
     let (tx, rx) = mpsc::sync_channel(32);
     let tray = AppTray {
         tx,
         visible,
         cc_assignments,
     };
-    let svc = ksni::TrayService::new(tray);
-    let handle = svc.handle();
-    std::thread::spawn(move || {
-        if let Err(e) = svc.run() {
-            log::warn!("System tray service stopped: {}", e);
+    match tray.spawn() {
+        Ok(handle) => Some((handle, rx)),
+        Err(e) => {
+            log::warn!("System tray service failed to start: {}", e);
+            None
         }
-    });
-    Some((handle, rx))
+    }
 }

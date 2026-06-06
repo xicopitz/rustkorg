@@ -50,7 +50,7 @@ pub struct MidiVolumeApp {
     last_runtime_error: Arc<Mutex<Option<String>>>,
     midi_reconnect_count: u32,
     // System tray
-    tray_handle: Option<ksni::Handle<crate::tray::AppTray>>,
+    tray_handle: Option<ksni::blocking::Handle<crate::tray::AppTray>>,
     tray_rx: Option<mpsc::Receiver<crate::tray::TrayCommand>>,
     window_visible: bool,
     force_quit: bool, // skip close-to-tray intercept when quitting from tray menu
