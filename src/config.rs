@@ -420,9 +420,7 @@ impl Config {
             output.push_str(&format!("volume_control_mode = \"{}\"\n", mode));
         }
         output.push('\n');
-        output.push_str(
-            "# Volume response mode (linear/logarithmic/soft-takeover/inertia)\n",
-        );
+        output.push_str("# Volume response mode (linear/logarithmic/soft-takeover/inertia)\n");
         if let Some(ref curve) = self.audio.volume_curve {
             output.push_str(&format!("volume_curve = \"{}\"\n", curve));
         }

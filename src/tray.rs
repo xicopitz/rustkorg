@@ -67,9 +67,7 @@ impl ksni::Tray for AppTray {
 ///
 /// Returns a handle + command receiver.
 /// If D-Bus is unavailable the spawned service thread will log a warning and exit.
-pub fn init_tray(
-    visible: bool,
-) -> Option<(ksni::Handle<AppTray>, mpsc::Receiver<TrayCommand>)> {
+pub fn init_tray(visible: bool) -> Option<(ksni::Handle<AppTray>, mpsc::Receiver<TrayCommand>)> {
     let (tx, rx) = mpsc::sync_channel(32);
     let tray = AppTray { tx, visible };
     let svc = ksni::TrayService::new(tray);

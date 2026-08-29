@@ -378,7 +378,10 @@ impl PipeWireController {
     pub fn list_active_application_names(&self) -> Vec<String> {
         let mut apps: Vec<String> = Vec::new();
 
-        if let Ok(output) = Command::new("pactl").args(&["list", "sink-inputs"]).output() {
+        if let Ok(output) = Command::new("pactl")
+            .args(&["list", "sink-inputs"])
+            .output()
+        {
             if !output.status.success() {
                 return apps;
             }
@@ -391,7 +394,10 @@ impl PipeWireController {
             for line in &lines {
                 if line.starts_with("Sink Input #") {
                     if let Some(name) = current_app.take() {
-                        if !apps.iter().any(|existing| existing.eq_ignore_ascii_case(&name.as_str())) {
+                        if !apps
+                            .iter()
+                            .any(|existing| existing.eq_ignore_ascii_case(&name.as_str()))
+                        {
                             apps.push(name);
                         }
                     }
@@ -417,7 +423,10 @@ impl PipeWireController {
             }
 
             if let Some(name) = current_app {
-                if !apps.iter().any(|existing| existing.eq_ignore_ascii_case(&name)) {
+                if !apps
+                    .iter()
+                    .any(|existing| existing.eq_ignore_ascii_case(&name))
+                {
                     apps.push(name);
                 }
             }
@@ -437,11 +446,7 @@ fn matched_sink(current_sink: Option<u32>, target_sink: u32) -> bool {
 
 #[inline]
 fn parse_pipewire_u32(value: &str) -> Option<u32> {
-    value
-        .trim()
-        .trim_start_matches('#')
-        .parse::<u32>()
-        .ok()
+    value.trim().trim_start_matches('#').parse::<u32>().ok()
 }
 
 #[inline]
@@ -477,7 +482,7 @@ fn normalize_app_name(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_pipewire_property_value, parse_pipewire_u32, normalize_app_name};
+    use super::{extract_pipewire_property_value, normalize_app_name, parse_pipewire_u32};
 
     #[test]
     fn parse_pipewire_ids_strips_hash_prefix() {
@@ -505,8 +510,14 @@ mod tests {
     #[test]
     fn pipewire_property_parser_handles_real_pactl_format() {
         let input = "                application.process.binary = \"firefox\"";
-        assert_eq!(extract_pipewire_property_value(input), Some("firefox".to_string()));
+        assert_eq!(
+            extract_pipewire_property_value(input),
+            Some("firefox".to_string())
+        );
         let input2 = "                application.name = \"Firefox\"";
-        assert_eq!(extract_pipewire_property_value(input2), Some("Firefox".to_string()));
+        assert_eq!(
+            extract_pipewire_property_value(input2),
+            Some("Firefox".to_string())
+        );
     }
 }

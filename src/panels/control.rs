@@ -82,8 +82,10 @@ pub fn render_faders_tab(
                                         // nanoKontrol2 knobs: display all 8 slots (CC16..CC23).
                                         ui.horizontal_wrapped(|ui| {
                                             for cc in 16u8..=23u8 {
-                                                let app_name =
-                                                    app_map.get(&cc).copied().unwrap_or("Unassigned");
+                                                let app_name = app_map
+                                                    .get(&cc)
+                                                    .copied()
+                                                    .unwrap_or("Unassigned");
                                                 let label_color = if app_name == "Unassigned" {
                                                     theme::TEXT_MUTED
                                                 } else {
@@ -436,9 +438,12 @@ pub fn render_faders_tab(
 
                                         if let Some(last_error) = &ui_state.health_last_error {
                                             ui.label(
-                                                RichText::new(format!("Last error: {}", last_error))
-                                                    .size(10.0)
-                                                    .color(theme::ACCENT_ORANGE),
+                                                RichText::new(format!(
+                                                    "Last error: {}",
+                                                    last_error
+                                                ))
+                                                .size(10.0)
+                                                .color(theme::ACCENT_ORANGE),
                                             );
                                         }
                                     });
@@ -570,7 +575,8 @@ fn render_fader_with_mute(
                     ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(60, 60, 70);
 
                     // Add border to slider widget
-                    ui.style_mut().visuals.selection.stroke = Stroke::new(2.0_f32, slider_handle_color);
+                    ui.style_mut().visuals.selection.stroke =
+                        Stroke::new(2.0_f32, slider_handle_color);
                     ui.style_mut().visuals.widgets.active.bg_stroke =
                         Stroke::new(2.0_f32, slider_handle_color);
                     ui.style_mut().visuals.widgets.hovered.bg_stroke =
@@ -624,13 +630,19 @@ fn render_fader_with_mute(
                     let displayed_norm = if elapsed < PEAK_HOLD_SECS {
                         peak_norm
                     } else {
-                        let decay_t = ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
+                        let decay_t =
+                            ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
                         let d = peak_norm - (peak_norm - current_norm) * decay_t;
-                        if d <= current_norm { current_norm } else { d }
+                        if d <= current_norm {
+                            current_norm
+                        } else {
+                            d
+                        }
                     };
 
                     if displayed_norm > current_norm {
-                        let peak_x = (rect.min.x + bar_width * displayed_norm).min(rect.max.x - 2.0);
+                        let peak_x =
+                            (rect.min.x + bar_width * displayed_norm).min(rect.max.x - 2.0);
                         let marker_rect = Rect::from_min_size(
                             egui::pos2(peak_x - 1.0, rect.min.y),
                             vec2(2.0, bar_height),
@@ -638,7 +650,8 @@ fn render_fader_with_mute(
                         let alpha = if elapsed < PEAK_HOLD_SECS {
                             255
                         } else {
-                            let decay_t = ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
+                            let decay_t =
+                                ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
                             (255.0 * (1.0 - decay_t)) as u8
                         };
                         ui.painter().rect_filled(
