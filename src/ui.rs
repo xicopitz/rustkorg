@@ -255,37 +255,42 @@ impl UiState {
         self.console_output.push((msg, chrono::Local::now()));
     }
 
-    pub fn apply_dark_theme(ctx: &Context) {
-        let mut visuals = Visuals::dark();
-        visuals.override_text_color = Some(theme::TEXT_PRIMARY);
+    pub fn apply_theme(ctx: &Context, theme_name: &str) {
+        let palette = theme::palette_for_name(theme_name);
+        let mut visuals = if theme_name.eq_ignore_ascii_case("light") {
+            Visuals::light()
+        } else {
+            Visuals::dark()
+        };
+        visuals.override_text_color = Some(palette.text_primary);
 
         // Panel backgrounds
-        visuals.panel_fill = theme::BG_PRIMARY;
-        visuals.window_fill = theme::BG_PRIMARY;
+        visuals.panel_fill = palette.bg_primary;
+        visuals.window_fill = palette.bg_primary;
 
         // Button styling
-        visuals.widgets.inactive.bg_fill = theme::BG_SECONDARY;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, theme::BORDER);
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, theme::TEXT_SECONDARY);
+        visuals.widgets.inactive.bg_fill = palette.bg_secondary;
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, palette.border);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, palette.text_secondary);
 
-        visuals.widgets.hovered.bg_fill = theme::BG_TERTIARY;
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, theme::ACCENT_BLUE);
+        visuals.widgets.hovered.bg_fill = palette.bg_tertiary;
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, palette.accent_blue);
 
-        visuals.widgets.active.bg_fill = theme::ACCENT_BLUE;
-        visuals.widgets.active.fg_stroke = Stroke::new(1.5, Color32::WHITE);
+        visuals.widgets.active.bg_fill = palette.accent_blue;
+        visuals.widgets.active.fg_stroke = Stroke::new(1.5_f32, Color32::WHITE);
 
         // Selection
-        visuals.selection.bg_fill = theme::ACCENT_BLUE;
-        visuals.selection.stroke = Stroke::new(1.0, theme::ACCENT_BLUE);
+        visuals.selection.bg_fill = palette.accent_blue;
+        visuals.selection.stroke = Stroke::new(1.0_f32, palette.accent_blue);
 
         // Borders
-        visuals.window_stroke = Stroke::new(1.0, theme::BORDER);
+        visuals.window_stroke = Stroke::new(1.0_f32, palette.border);
 
         ctx.set_visuals(visuals);
     }
 
     pub fn render_tabs(&mut self, ctx: &Context) {
-        Self::apply_dark_theme(ctx);
+        Self::apply_theme(ctx, &self.cfg_theme);
 
         // Auto-switch from Console tab if it is no longer available.
         if (!self.cfg_logging_enabled || !self.cfg_show_console)
@@ -298,7 +303,7 @@ impl UiState {
             .frame(
                 Frame::default()
                     .fill(theme::BG_SECONDARY)
-                    .stroke(Stroke::new(1.0, theme::BORDER)),
+                    .stroke(Stroke::new(1.0_f32, theme::BORDER)),
             )
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {

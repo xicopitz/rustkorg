@@ -40,4 +40,4 @@ pactl set-sink-volume comms_sink 10%
 
 # 7. FINALIZE
 pactl set-default-sink master_sink
-alsactl --file ~/.bin/audio/asound.state restore 2>/dev/null
+# alsactl --file ~/.bin/audio/asound.state restore 2>/dev/null

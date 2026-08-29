@@ -130,11 +130,6 @@ impl PipeWireController {
     }
 
     fn get_matching_app_inputs(&self, app_name: &str) -> Vec<(u32, u8)> {
-        let target_sink_index = match self.get_sink_index(&self.default_sink_name) {
-            Some(idx) => idx,
-            None => return Vec::new(),
-        };
-
         let app_name_lower = app_name.to_lowercase();
         let normalized_config = normalize_app_name(&app_name_lower);
 
@@ -149,14 +144,13 @@ impl PipeWireController {
                 let lines: Vec<&str> = text.lines().collect();
 
                 let mut current_input_index: Option<u32> = None;
-                let mut current_sink: Option<u32> = None;
                 let mut matched_app: bool = false;
                 let mut matched_volume: Option<u8> = None;
 
                 for line in &lines {
                     if line.starts_with("Sink Input #") {
                         if let Some(idx) = current_input_index {
-                            if matched_app && matched_sink(current_sink, target_sink_index) {
+                            if matched_app {
                                 if let Some(vol) = matched_volume {
                                     results.push((idx, vol));
                                 }
@@ -168,29 +162,28 @@ impl PipeWireController {
                         {
                             current_input_index = idx_str.parse::<u32>().ok();
                         }
-                        current_sink = None;
                         matched_app = false;
                         matched_volume = None;
                         continue;
                     }
 
                     if let Some(_) = current_input_index {
-                        if line.trim().starts_with("Sink:") {
-                            if let Some(val_str) =
-                                line.trim().strip_prefix("Sink:").map(|s| s.trim())
-                            {
-                                current_sink = val_str.parse::<u32>().ok();
-                            }
-                        }
-
                         if !matched_app {
-                            let line_lower = line.to_lowercase();
-                            let normalized_line = normalize_app_name(&line_lower);
-                            if (line_lower.contains("application.name")
-                                && normalized_line.contains(&normalized_config))
-                                || (line_lower.contains("application.process.binary")
-                                    && normalized_line.contains(&normalized_config))
-                            {
+                            let line_trimmed = line.trim();
+                            let property_key = line_trimmed
+                                .split_once('=')
+                                .map(|(key, _)| key.trim().to_lowercase())
+                                .unwrap_or_default();
+                            let property_value = extract_pipewire_property_value(line_trimmed);
+
+                            let normalized_value = property_value
+                                .as_deref()
+                                .map(normalize_app_name)
+                                .unwrap_or_default();
+                            let matches_property = (property_key == "application.name"
+                                || property_key == "application.process.binary")
+                                && normalized_value.contains(&normalized_config);
+                            if matches_property {
                                 matched_app = true;
                             }
                         }
@@ -209,7 +202,7 @@ impl PipeWireController {
                 }
 
                 if let Some(idx) = current_input_index {
-                    if matched_app && matched_sink(current_sink, target_sink_index) {
+                    if matched_app {
                         if let Some(vol) = matched_volume {
                             results.push((idx, vol));
                         }
@@ -384,10 +377,6 @@ impl PipeWireController {
 
     pub fn list_active_application_names(&self) -> Vec<String> {
         let mut apps: Vec<String> = Vec::new();
-        let target_sink_index = match self.get_sink_index(&self.default_sink_name) {
-            Some(idx) => idx,
-            None => return apps,
-        };
 
         if let Ok(output) = Command::new("pactl").args(&["list", "sink-inputs"]).output() {
             if !output.status.success() {
@@ -397,44 +386,39 @@ impl PipeWireController {
             let text = String::from_utf8_lossy(&output.stdout);
             let lines: Vec<&str> = text.lines().collect();
 
-            let mut current_sink: Option<u32> = None;
             let mut current_app: Option<String> = None;
 
             for line in &lines {
                 if line.starts_with("Sink Input #") {
-                    if matched_sink(current_sink, target_sink_index) {
-                        if let Some(name) = current_app.take() {
-                            if !apps.iter().any(|existing| existing.eq_ignore_ascii_case(&name)) {
-                                apps.push(name);
-                            }
+                    if let Some(name) = current_app.take() {
+                        if !apps.iter().any(|existing| existing.eq_ignore_ascii_case(&name.as_str())) {
+                            apps.push(name);
                         }
                     }
-                    current_sink = None;
                     current_app = None;
                     continue;
                 }
 
-                if line.trim().starts_with("Sink:") {
-                    if let Some(val_str) = line.trim().strip_prefix("Sink:").map(|s| s.trim()) {
-                        current_sink = val_str.parse::<u32>().ok();
-                    }
-                }
-
-                if current_app.is_none() && line.trim().starts_with("application.name =") {
-                    if let Some((_, value)) = line.split_once('=') {
-                        let name = value.trim().trim_matches('"').to_string();
-                        if !name.is_empty() {
-                            current_app = Some(name);
+                if current_app.is_none() {
+                    let trimmed = line.trim();
+                    if trimmed
+                        .split_once('=')
+                        .map(|(key, _)| key.trim().to_lowercase())
+                        .unwrap_or_default()
+                        == "application.name"
+                    {
+                        if let Some(name) = extract_pipewire_property_value(trimmed) {
+                            if !name.is_empty() {
+                                current_app = Some(name);
+                            }
                         }
                     }
                 }
             }
 
-            if matched_sink(current_sink, target_sink_index) {
-                if let Some(name) = current_app {
-                    if !apps.iter().any(|existing| existing.eq_ignore_ascii_case(&name)) {
-                        apps.push(name);
-                    }
+            if let Some(name) = current_app {
+                if !apps.iter().any(|existing| existing.eq_ignore_ascii_case(&name)) {
+                    apps.push(name);
                 }
             }
         }
@@ -451,13 +435,78 @@ fn matched_sink(current_sink: Option<u32>, target_sink: u32) -> bool {
     }
 }
 
+#[inline]
+fn parse_pipewire_u32(value: &str) -> Option<u32> {
+    value
+        .trim()
+        .trim_start_matches('#')
+        .parse::<u32>()
+        .ok()
+}
+
+#[inline]
+fn extract_pipewire_property_value(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    let (key, value) = trimmed.split_once('=')?;
+    let _key_name = key.trim();
+    let raw_value = value.trim();
+    let unquoted = raw_value
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .unwrap_or(raw_value)
+        .trim();
+    if unquoted.is_empty() {
+        return None;
+    }
+    Some(unquoted.to_string())
+}
+
 // Helper function to normalize application names for matching
 // Converts "google chrome" -> "chrome", "google-chrome" -> "chrome", etc.
 #[inline]
 fn normalize_app_name(name: &str) -> String {
-    name.replace("google-", "")
+    name.trim()
+        .trim_matches(|c| c == '"' || c == '\'')
+        .to_lowercase()
+        .replace("google-", "")
         .replace("google ", "")
         .replace(" ", "")
         .replace("-", "")
         .replace("_", "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_pipewire_property_value, parse_pipewire_u32, normalize_app_name};
+
+    #[test]
+    fn parse_pipewire_ids_strips_hash_prefix() {
+        assert_eq!(parse_pipewire_u32("#42"), Some(42));
+        assert_eq!(parse_pipewire_u32("42"), Some(42));
+        assert_eq!(parse_pipewire_u32(" #7 "), Some(7));
+        assert_eq!(parse_pipewire_u32("abc"), None);
+    }
+
+    #[test]
+    fn app_name_matching_ignores_property_names() {
+        let line = "                application.name = \"Firefox\"";
+        let value = extract_pipewire_property_value(line).unwrap();
+        let normalized_firefox = normalize_app_name(&value);
+        let normalized_config = normalize_app_name("firefox");
+        assert!(normalized_firefox.contains(&normalized_config));
+
+        let property_name = "application.name";
+        let normalized_property_name = normalize_app_name(property_name);
+        let normalized_name_search = normalize_app_name("name");
+        assert_ne!(normalized_property_name, normalized_name_search);
+        assert_ne!(normalized_firefox, normalized_property_name);
+    }
+
+    #[test]
+    fn pipewire_property_parser_handles_real_pactl_format() {
+        let input = "                application.process.binary = \"firefox\"";
+        assert_eq!(extract_pipewire_property_value(input), Some("firefox".to_string()));
+        let input2 = "                application.name = \"Firefox\"";
+        assert_eq!(extract_pipewire_property_value(input2), Some("Firefox".to_string()));
+    }
 }

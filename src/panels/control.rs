@@ -51,7 +51,7 @@ pub fn render_faders_tab(
                                 ui.add_space(12.0);
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -92,7 +92,7 @@ pub fn render_faders_tab(
 
                                                 Frame::default()
                                                     .fill(theme::BG_TERTIARY)
-                                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                                     .inner_margin(Margin {
                                                         left: 8,
                                                         right: 8,
@@ -141,7 +141,7 @@ pub fn render_faders_tab(
 
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -173,6 +173,14 @@ pub fn render_faders_tab(
                                         ui.add_space(8.0);
 
                                         for &display_idx in &ui_state.sink_display_order {
+                                            if display_idx >= ui_state.system_fader_labels.len()
+                                                || display_idx >= ui_state.system_fader_values.len()
+                                                || display_idx >= ui_state.system_available.len()
+                                                || display_idx >= ui_state.system_muted.len()
+                                            {
+                                                continue;
+                                            }
+
                                             // Skip if not visible
                                             if !ui_state
                                                 .sink_visibility
@@ -239,7 +247,7 @@ pub fn render_faders_tab(
 
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -271,6 +279,15 @@ pub fn render_faders_tab(
                                         ui.add_space(8.0);
 
                                         for &display_idx in &ui_state.app_display_order {
+                                            if display_idx >= ui_state.app_fader_labels.len()
+                                                || display_idx >= ui_state.app_fader_values.len()
+                                                || display_idx >= ui_state.app_available.len()
+                                                || display_idx >= ui_state.app_muted.len()
+                                                || display_idx >= ui_state.app_peak_values.len()
+                                            {
+                                                continue;
+                                            }
+
                                             // Skip if not visible
                                             if !ui_state
                                                 .app_visibility
@@ -332,7 +349,7 @@ pub fn render_faders_tab(
                                 ui.add_space(8.0);
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -456,7 +473,7 @@ fn render_fader_with_mute(
     // Container for each fader
     Frame::default()
         .fill(theme::BG_SECONDARY)
-        .stroke(Stroke::new(1.0, theme::BORDER))
+        .stroke(Stroke::new(1.0_f32, theme::BORDER))
         .inner_margin(Margin {
             left: 20,
             right: 20,
@@ -553,11 +570,11 @@ fn render_fader_with_mute(
                     ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(60, 60, 70);
 
                     // Add border to slider widget
-                    ui.style_mut().visuals.selection.stroke = Stroke::new(2.0, slider_handle_color);
+                    ui.style_mut().visuals.selection.stroke = Stroke::new(2.0_f32, slider_handle_color);
                     ui.style_mut().visuals.widgets.active.bg_stroke =
-                        Stroke::new(2.0, slider_handle_color);
+                        Stroke::new(2.0_f32, slider_handle_color);
                     ui.style_mut().visuals.widgets.hovered.bg_stroke =
-                        Stroke::new(2.0, slider_handle_color);
+                        Stroke::new(2.0_f32, slider_handle_color);
 
                     ui.add(Slider::new(fader_value, 0..=127).show_value(false).text(""));
 
