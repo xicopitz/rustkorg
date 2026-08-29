@@ -29,16 +29,16 @@ pub struct MidiVolumeApp {
     last_midi_output_reconnect: Instant,      // Throttle output reconnect attempts
     pipewire: Arc<Mutex<PipeWireController>>, // Wrapped in Arc<Mutex> for thread-safe access
     audio_update_tx: mpsc::Sender<AudioUpdateCommand>,
-    cc_mapping: HashMap<u8, String>,          // Maps CC number to audio target name
-    cc_types: HashMap<u8, bool>,              // Maps CC to is_sink (true=sink, false=app)
-    last_volume_values: HashMap<u8, u8>,      // Cache last sent volume for each CC
-    last_volume_time: HashMap<u8, Instant>,   // Track last volume change time
-    cc_to_sink_index: HashMap<u8, usize>,     // Maps CC to sink UI index
-    cc_to_app_index: HashMap<u8, usize>,      // Maps CC to app UI index
-    mute_button_mapping: HashMap<u8, u8>,     // Maps mute button CC to target fader CC
-    debounce_ms: u32,                         // Cached debounce value
-    logging_enabled: bool,                    // Cached logging flag
-    last_availability_check: Instant,         // Track last availability check time
+    cc_mapping: HashMap<u8, String>, // Maps CC number to audio target name
+    cc_types: HashMap<u8, bool>,     // Maps CC to is_sink (true=sink, false=app)
+    last_volume_values: HashMap<u8, u8>, // Cache last sent volume for each CC
+    last_volume_time: HashMap<u8, Instant>, // Track last volume change time
+    cc_to_sink_index: HashMap<u8, usize>, // Maps CC to sink UI index
+    cc_to_app_index: HashMap<u8, usize>, // Maps CC to app UI index
+    mute_button_mapping: HashMap<u8, u8>, // Maps mute button CC to target fader CC
+    debounce_ms: u32,                // Cached debounce value
+    logging_enabled: bool,           // Cached logging flag
+    last_availability_check: Instant, // Track last availability check time
     applications_sink_search_interval_secs: u64, // Interval (in seconds) for checking app availability
     spectrum_analyzer: SpectrumAnalyzer,         // Spectrum analyzer for visualizer
     last_window_width: u32,                      // Track previous window width for live resizing
@@ -140,7 +140,13 @@ impl MidiVolumeApp {
         });
     }
 
-    fn spawn_audio_update(&self, target: String, percent: u8, is_sink: bool, context: &'static str) {
+    fn spawn_audio_update(
+        &self,
+        target: String,
+        percent: u8,
+        is_sink: bool,
+        context: &'static str,
+    ) {
         if let Err(e) = self.audio_update_tx.send(AudioUpdateCommand {
             target,
             percent,
@@ -267,7 +273,10 @@ impl MidiVolumeApp {
         let active_apps = match self.pipewire.lock() {
             Ok(pw) => pw.list_active_application_names(),
             Err(e) => {
-                let message = format!("Auto-assign failed: could not access PipeWire controller: {}", e);
+                let message = format!(
+                    "Auto-assign failed: could not access PipeWire controller: {}",
+                    e
+                );
                 warn!("{}", message);
                 Self::set_last_runtime_error(&self.last_runtime_error, message.clone());
                 self.ui_state.settings_save_message =
@@ -334,8 +343,7 @@ impl MidiVolumeApp {
         self.ui_state.settings_save_message = Some((summary.clone(), std::time::Instant::now()));
 
         if self.logging_enabled {
-            self.ui_state
-                .add_console_message(format!("{}", summary));
+            self.ui_state.add_console_message(format!("{}", summary));
             for (cc, app_name) in added {
                 self.ui_state
                     .add_console_message(format!("Mapped '{}' to CC{}", app_name, cc));
@@ -650,23 +658,25 @@ impl MidiVolumeApp {
 
                         // Debounce: Skip if value hasn't changed or updated too recently
                         let now = Instant::now();
-                        let should_update = if let Some(&last_val) = self.last_volume_values.get(&cc) {
-                            let delta = last_val.abs_diff(percent);
+                        let should_update =
+                            if let Some(&last_val) = self.last_volume_values.get(&cc) {
+                                let delta = last_val.abs_diff(percent);
 
-                            if last_val == percent {
-                                false // Same value, skip
-                            } else if delta >= MIDI_FAST_MOVE_DELTA_PERCENT {
-                                // Large slider movement should feel immediate.
-                                true
-                            } else if let Some(&last_time) = self.last_volume_time.get(&cc) {
-                                // Tiny movements are often controller jitter, keep debounce here.
-                                now.duration_since(last_time).as_millis() >= self.debounce_ms as u128
+                                if last_val == percent {
+                                    false // Same value, skip
+                                } else if delta >= MIDI_FAST_MOVE_DELTA_PERCENT {
+                                    // Large slider movement should feel immediate.
+                                    true
+                                } else if let Some(&last_time) = self.last_volume_time.get(&cc) {
+                                    // Tiny movements are often controller jitter, keep debounce here.
+                                    now.duration_since(last_time).as_millis()
+                                        >= self.debounce_ms as u128
+                                } else {
+                                    true
+                                }
                             } else {
-                                true
-                            }
-                        } else {
-                            true // First update
-                        };
+                                true // First update
+                            };
 
                         if !should_update {
                             continue; // Skip this update
@@ -771,12 +781,7 @@ impl MidiVolumeApp {
 
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
-                self.spawn_audio_update(
-                    target.clone(),
-                    percent,
-                    true,
-                    "Sink unmute restore",
-                );
+                self.spawn_audio_update(target.clone(), percent, true, "Sink unmute restore");
             }
         } else {
             // Mute: save current volume and set to 0
@@ -808,12 +813,7 @@ impl MidiVolumeApp {
 
             if let Some(target) = self.cc_mapping.get(&cc) {
                 let percent = ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8;
-                self.spawn_audio_update(
-                    target.clone(),
-                    percent,
-                    false,
-                    "App unmute restore",
-                );
+                self.spawn_audio_update(target.clone(), percent, false, "App unmute restore");
             }
         } else {
             // Mute: save current volume and set to 0
@@ -887,7 +887,9 @@ impl MidiVolumeApp {
 
     fn check_audio_availability(&mut self) {
         // Run if the subscribe thread detected a change, or as a fallback timer
-        let signaled = self.pipewire.lock()
+        let signaled = self
+            .pipewire
+            .lock()
             .map(|pw| pw.take_availability_changed())
             .unwrap_or(false);
         let force_by_timer = self.last_availability_check.elapsed().as_secs()
@@ -909,7 +911,8 @@ impl MidiVolumeApp {
             // Check app availability — single pactl call per app instead of two
             for i in 0..self.ui_state.app_fader_labels.len() {
                 let app_name = self.ui_state.app_fader_labels[i].1.clone();
-                let (is_available, input_count) = pipewire.get_app_availability_and_count(&app_name);
+                let (is_available, input_count) =
+                    pipewire.get_app_availability_and_count(&app_name);
                 self.ui_state.app_available[i] = is_available;
                 self.ui_state.app_input_count[i] = input_count;
             }
@@ -1053,9 +1056,7 @@ impl MidiVolumeApp {
                 // Toggle system tray on/off if enable_tray setting changed
                 match (self.tray_handle.is_some(), self.ui_state.enable_tray) {
                     (false, true) => {
-                        if let Some((handle, rx)) =
-                            crate::tray::init_tray(self.window_visible)
-                        {
+                        if let Some((handle, rx)) = crate::tray::init_tray(self.window_visible) {
                             self.tray_handle = Some(handle);
                             self.tray_rx = Some(rx);
                         }
@@ -1106,9 +1107,7 @@ impl eframe::App for MidiVolumeApp {
             match cmd {
                 crate::tray::TrayCommand::ShowHide => {
                     self.window_visible = !self.window_visible;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(
-                        self.window_visible,
-                    ));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Visible(self.window_visible));
                     if let Some(handle) = &self.tray_handle {
                         let visible = self.window_visible;
                         handle.update(move |tray| {

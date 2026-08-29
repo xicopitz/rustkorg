@@ -30,7 +30,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             // --- Sink Mappings ---
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,
@@ -118,7 +118,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             // --- Application Mappings ---
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,
@@ -230,7 +230,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             // --- Mute Button Mappings ---
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,
@@ -341,7 +341,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             // Audio Sinks Subsection
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,
@@ -426,7 +426,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             // Applications Subsection
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,
@@ -514,7 +514,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
 
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,
@@ -683,7 +683,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
 
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,
@@ -755,8 +755,18 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 );
                                                 ui.selectable_value(
                                                     &mut ui_state.cfg_theme,
-                                                    "dark".to_string(),
-                                                    "dark",
+                                                    "midnight".to_string(),
+                                                    "midnight",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut ui_state.cfg_theme,
+                                                    "sunset".to_string(),
+                                                    "sunset",
+                                                );
+                                                ui.selectable_value(
+                                                    &mut ui_state.cfg_theme,
+                                                    "ocean".to_string(),
+                                                    "ocean",
                                                 );
                                                 ui.selectable_value(
                                                     &mut ui_state.cfg_theme,
@@ -1066,7 +1076,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
 
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,

@@ -121,7 +121,7 @@ pub fn render_spectrum_visualizer(
 
     Frame::default()
         .fill(theme::BG_SECONDARY)
-        .stroke(Stroke::new(1.0, theme::BORDER))
+        .stroke(Stroke::new(1.0_f32, theme::BORDER))
         .inner_margin(Margin::same(12))
         .corner_radius(CornerRadius::same(6))
         .show(ui, |ui| {
@@ -148,9 +148,9 @@ pub fn render_spectrum_visualizer(
                             ui.style_mut().visuals.widgets.active.bg_fill = Color32::WHITE;
                             ui.style_mut().visuals.selection.bg_fill = Color32::WHITE;
                             ui.style_mut().visuals.widgets.active.bg_stroke =
-                                Stroke::new(1.5, Color32::WHITE);
+                                Stroke::new(1.5_f32, Color32::WHITE);
                             ui.style_mut().visuals.widgets.hovered.bg_stroke =
-                                Stroke::new(1.0, Color32::from_rgb(190, 190, 200));
+                                Stroke::new(1.0_f32, Color32::from_rgb(190, 190, 200));
 
                             ui.add_sized(
                                 [130.0, 0.0],
@@ -280,7 +280,7 @@ fn render_spectrum_bars(
         let y = rect.min.y + (available_height * i as f32 / 4.0);
         painter.line_segment(
             [pos2(rect.min.x, y), pos2(rect.max.x, y)],
-            Stroke::new(0.5, Color32::from_rgba_unmultiplied(80, 80, 90, 40)),
+            Stroke::new(0.5_f32, Color32::from_rgba_unmultiplied(80, 80, 90, 40)),
         );
     }
 
@@ -325,7 +325,7 @@ fn render_spectrum_bars(
                         pos2(x_left, peak_y_left),
                         pos2(x_left + effective_bar_width, peak_y_left),
                     ],
-                    Stroke::new(2.0, Color32::WHITE),
+                    Stroke::new(2.0_f32, Color32::WHITE),
                 );
             }
 
@@ -360,7 +360,7 @@ fn render_spectrum_bars(
                         pos2(x_right, peak_y_right),
                         pos2(x_right + effective_bar_width, peak_y_right),
                     ],
-                    Stroke::new(2.0, Color32::WHITE),
+                    Stroke::new(2.0_f32, Color32::WHITE),
                 );
             }
         }
@@ -400,7 +400,7 @@ fn render_spectrum_bars(
             if enabled && peak_value > 0.01 {
                 painter.line_segment(
                     [pos2(x, peak_y), pos2(x + effective_bar_width, peak_y)],
-                    Stroke::new(2.0, Color32::WHITE),
+                    Stroke::new(2.0_f32, Color32::WHITE),
                 );
             }
         }

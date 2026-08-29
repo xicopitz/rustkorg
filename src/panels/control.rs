@@ -51,7 +51,7 @@ pub fn render_faders_tab(
                                 ui.add_space(12.0);
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -82,8 +82,10 @@ pub fn render_faders_tab(
                                         // nanoKontrol2 knobs: display all 8 slots (CC16..CC23).
                                         ui.horizontal_wrapped(|ui| {
                                             for cc in 16u8..=23u8 {
-                                                let app_name =
-                                                    app_map.get(&cc).copied().unwrap_or("Unassigned");
+                                                let app_name = app_map
+                                                    .get(&cc)
+                                                    .copied()
+                                                    .unwrap_or("Unassigned");
                                                 let label_color = if app_name == "Unassigned" {
                                                     theme::TEXT_MUTED
                                                 } else {
@@ -92,7 +94,7 @@ pub fn render_faders_tab(
 
                                                 Frame::default()
                                                     .fill(theme::BG_TERTIARY)
-                                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                                     .inner_margin(Margin {
                                                         left: 8,
                                                         right: 8,
@@ -141,7 +143,7 @@ pub fn render_faders_tab(
 
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -173,6 +175,14 @@ pub fn render_faders_tab(
                                         ui.add_space(8.0);
 
                                         for &display_idx in &ui_state.sink_display_order {
+                                            if display_idx >= ui_state.system_fader_labels.len()
+                                                || display_idx >= ui_state.system_fader_values.len()
+                                                || display_idx >= ui_state.system_available.len()
+                                                || display_idx >= ui_state.system_muted.len()
+                                            {
+                                                continue;
+                                            }
+
                                             // Skip if not visible
                                             if !ui_state
                                                 .sink_visibility
@@ -239,7 +249,7 @@ pub fn render_faders_tab(
 
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -271,6 +281,15 @@ pub fn render_faders_tab(
                                         ui.add_space(8.0);
 
                                         for &display_idx in &ui_state.app_display_order {
+                                            if display_idx >= ui_state.app_fader_labels.len()
+                                                || display_idx >= ui_state.app_fader_values.len()
+                                                || display_idx >= ui_state.app_available.len()
+                                                || display_idx >= ui_state.app_muted.len()
+                                                || display_idx >= ui_state.app_peak_values.len()
+                                            {
+                                                continue;
+                                            }
+
                                             // Skip if not visible
                                             if !ui_state
                                                 .app_visibility
@@ -332,7 +351,7 @@ pub fn render_faders_tab(
                                 ui.add_space(8.0);
                                 Frame::default()
                                     .fill(theme::BG_SECONDARY)
-                                    .stroke(Stroke::new(1.0, theme::BORDER))
+                                    .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                     .inner_margin(Margin {
                                         left: 12,
                                         right: 12,
@@ -419,9 +438,12 @@ pub fn render_faders_tab(
 
                                         if let Some(last_error) = &ui_state.health_last_error {
                                             ui.label(
-                                                RichText::new(format!("Last error: {}", last_error))
-                                                    .size(10.0)
-                                                    .color(theme::ACCENT_ORANGE),
+                                                RichText::new(format!(
+                                                    "Last error: {}",
+                                                    last_error
+                                                ))
+                                                .size(10.0)
+                                                .color(theme::ACCENT_ORANGE),
                                             );
                                         }
                                     });
@@ -456,7 +478,7 @@ fn render_fader_with_mute(
     // Container for each fader
     Frame::default()
         .fill(theme::BG_SECONDARY)
-        .stroke(Stroke::new(1.0, theme::BORDER))
+        .stroke(Stroke::new(1.0_f32, theme::BORDER))
         .inner_margin(Margin {
             left: 20,
             right: 20,
@@ -553,11 +575,12 @@ fn render_fader_with_mute(
                     ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(60, 60, 70);
 
                     // Add border to slider widget
-                    ui.style_mut().visuals.selection.stroke = Stroke::new(2.0, slider_handle_color);
+                    ui.style_mut().visuals.selection.stroke =
+                        Stroke::new(2.0_f32, slider_handle_color);
                     ui.style_mut().visuals.widgets.active.bg_stroke =
-                        Stroke::new(2.0, slider_handle_color);
+                        Stroke::new(2.0_f32, slider_handle_color);
                     ui.style_mut().visuals.widgets.hovered.bg_stroke =
-                        Stroke::new(2.0, slider_handle_color);
+                        Stroke::new(2.0_f32, slider_handle_color);
 
                     ui.add(Slider::new(fader_value, 0..=127).show_value(false).text(""));
 
@@ -607,13 +630,19 @@ fn render_fader_with_mute(
                     let displayed_norm = if elapsed < PEAK_HOLD_SECS {
                         peak_norm
                     } else {
-                        let decay_t = ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
+                        let decay_t =
+                            ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
                         let d = peak_norm - (peak_norm - current_norm) * decay_t;
-                        if d <= current_norm { current_norm } else { d }
+                        if d <= current_norm {
+                            current_norm
+                        } else {
+                            d
+                        }
                     };
 
                     if displayed_norm > current_norm {
-                        let peak_x = (rect.min.x + bar_width * displayed_norm).min(rect.max.x - 2.0);
+                        let peak_x =
+                            (rect.min.x + bar_width * displayed_norm).min(rect.max.x - 2.0);
                         let marker_rect = Rect::from_min_size(
                             egui::pos2(peak_x - 1.0, rect.min.y),
                             vec2(2.0, bar_height),
@@ -621,7 +650,8 @@ fn render_fader_with_mute(
                         let alpha = if elapsed < PEAK_HOLD_SECS {
                             255
                         } else {
-                            let decay_t = ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
+                            let decay_t =
+                                ((elapsed - PEAK_HOLD_SECS) / PEAK_DECAY_SECS).clamp(0.0, 1.0);
                             (255.0 * (1.0 - decay_t)) as u8
                         };
                         ui.painter().rect_filled(

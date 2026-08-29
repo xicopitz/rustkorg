@@ -5,7 +5,10 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, Copy)]
 pub enum MidiMessage {
-    ControlChange { cc: u8, value: u8 },
+    ControlChange {
+        cc: u8,
+        value: u8,
+    },
     /// Device was found and connected successfully.
     Connected,
     /// Device was unplugged or could not be found; reconnecting in background.

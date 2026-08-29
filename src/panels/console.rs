@@ -33,7 +33,7 @@ pub fn render_console_tab(
                             // Console box frame
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
-                                .stroke(Stroke::new(1.0, theme::BORDER))
+                                .stroke(Stroke::new(1.0_f32, theme::BORDER))
                                 .inner_margin(Margin {
                                     left: 20,
                                     right: 20,

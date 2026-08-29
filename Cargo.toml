@@ -30,6 +30,3 @@ image = "0.24"
 [profile.release]
 opt-level = 3
 lto = true
-
-[registries.github]
-index = "https://github.com/yourusername/korg-registry.git"
