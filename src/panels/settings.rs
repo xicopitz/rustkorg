@@ -905,6 +905,23 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                         &mut settings_changed,
                                     );
 
+                                    ui.add_space(8.0);
+
+                                    // Show graph tab
+                                    let old_show_graph = ui_state.cfg_show_graph;
+                                    ui.checkbox(
+                                        &mut ui_state.cfg_show_graph,
+                                        RichText::new("Show Graph Tab")
+                                            .size(13.0)
+                                            .color(theme::TEXT_PRIMARY),
+                                    );
+                                    track(
+                                        old_show_graph,
+                                        &ui_state.cfg_show_graph,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
+
                                     // ---- System Tray ----
                                     ui.add_space(8.0);
                                     ui.label(

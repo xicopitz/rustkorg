@@ -76,6 +76,64 @@ impl PipeWireController {
         });
     }
 
+    /// Every active sink-input with the sink it's currently routed to, for the read-only
+    /// routing view (Graph tab) — unlike `get_matching_app_inputs`, this isn't filtered to
+    /// a configured app name, it's every stream PipeWire currently knows about.
+    pub fn list_all_sink_inputs(&self) -> Vec<(u32, String, Option<u32>)> {
+        let mut results = Vec::new();
+
+        let Ok(output) = Command::new("pactl").args(&["list", "sink-inputs"]).output() else {
+            return results;
+        };
+        if !output.status.success() {
+            return results;
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut current_input_index: Option<u32> = None;
+        let mut current_sink_index: Option<u32> = None;
+        let mut current_app_name: Option<String> = None;
+
+        for line in text.lines() {
+            if line.starts_with("Sink Input #") {
+                if let (Some(idx), Some(name)) = (current_input_index, current_app_name.take()) {
+                    results.push((idx, name, current_sink_index));
+                }
+                current_input_index = line
+                    .strip_prefix("Sink Input #")
+                    .and_then(|s| s.split_whitespace().next())
+                    .and_then(|s| s.parse::<u32>().ok());
+                current_sink_index = None;
+                continue;
+            }
+
+            let trimmed = line.trim();
+            if current_app_name.is_none() {
+                if let Some((key, _)) = trimmed.split_once('=') {
+                    let key = key.trim().to_lowercase();
+                    if key == "application.name" || key == "application.process.binary" {
+                        if let Some(name) = extract_pipewire_property_value(trimmed) {
+                            if !name.is_empty() {
+                                current_app_name = Some(name);
+                            }
+                        }
+                    }
+                }
+            }
+            if current_sink_index.is_none() {
+                if let Some(idx_str) = trimmed.strip_prefix("Sink:") {
+                    current_sink_index = idx_str.trim().parse::<u32>().ok();
+                }
+            }
+        }
+
+        if let (Some(idx), Some(name)) = (current_input_index, current_app_name) {
+            results.push((idx, name, current_sink_index));
+        }
+
+        results
+    }
+
     fn get_matching_app_inputs(&self, app_name: &str) -> Vec<(u32, u8)> {
         let app_name_lower = app_name.to_lowercase();
         let normalized_config = normalize_app_name(&app_name_lower);
@@ -349,6 +407,64 @@ impl PipeWireController {
             .lines()
             .filter_map(|line| line.split_whitespace().nth(1))
             .map(String::from)
+            .collect()
+    }
+
+    /// (software sink name, hardware/destination sink name) pairs, parsed from `pactl list
+    /// modules`' `module-loopback` entries — this is how a virtual sink like `master_sink`
+    /// actually reaches real hardware in a loopback-based routing setup (its `Argument`
+    /// looks like `source=master_sink.monitor sink=alsa_output...`), and there's no other
+    /// way to discover that relationship from the sink/sink-input listings alone.
+    pub fn list_loopback_routes(&self) -> Vec<(String, String)> {
+        let output = match Command::new("pactl").args(&["list", "modules"]).output() {
+            Ok(output) if output.status.success() => output,
+            _ => return Vec::new(),
+        };
+
+        let mut routes = Vec::new();
+        let mut in_loopback_module = false;
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("Module #") {
+                in_loopback_module = false;
+            } else if let Some(name) = trimmed.strip_prefix("Name:") {
+                in_loopback_module = name.trim() == "module-loopback";
+            } else if in_loopback_module {
+                if let Some(args) = trimmed.strip_prefix("Argument:") {
+                    let source = args
+                        .split_whitespace()
+                        .find_map(|kv| kv.strip_prefix("source="))
+                        .and_then(|s| s.strip_suffix(".monitor"));
+                    let sink = args
+                        .split_whitespace()
+                        .find_map(|kv| kv.strip_prefix("sink="));
+                    if let (Some(source), Some(sink)) = (source, sink) {
+                        routes.push((source.to_string(), sink.to_string()));
+                    }
+                    in_loopback_module = false;
+                }
+            }
+        }
+
+        routes
+    }
+
+    /// Sink index + name pairs, for the routing view (Graph tab) where sink-inputs need
+    /// to be matched to a sink by index rather than just displaying names.
+    pub fn list_sinks_indexed(&self) -> Vec<(u32, String)> {
+        let output = match Command::new("pactl").args(&["list", "sinks", "short"]).output() {
+            Ok(output) if output.status.success() => output,
+            _ => return Vec::new(),
+        };
+
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split_whitespace();
+                let idx = fields.next()?.parse::<u32>().ok()?;
+                let name = fields.next()?.to_string();
+                Some((idx, name))
+            })
             .collect()
     }
 
