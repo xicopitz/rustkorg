@@ -36,7 +36,6 @@ pub struct MidiControlsConfig {
 pub struct AudioConfig {
     pub use_pipewire: Option<bool>,
     pub default_sink: Option<String>,
-    pub volume_control_mode: Option<String>,
     pub volume_curve: Option<String>,
     pub debounce_ms: Option<u32>,
     pub applications_sink_search: Option<u64>,
@@ -275,7 +274,6 @@ impl Default for Config {
             audio: AudioConfig {
                 use_pipewire: Some(true),
                 default_sink: Some("alsa_output.pci-0000_25_00.0.analog-stereo".to_string()),
-                volume_control_mode: Some("pipewire-api".to_string()),
                 volume_curve: Some("linear".to_string()),
                 debounce_ms: Some(10),
                 applications_sink_search: Some(10),
@@ -413,13 +411,6 @@ impl Config {
             output.push_str(&format!("default_sink = \"{}\"\n", default_sink));
         }
         output.push('\n');
-        output.push_str("# Volume control mode:\n");
-        output.push_str("# \"pw-volume\"     - Use pw-volume command (default, simple)\n");
-        output.push_str("# \"pipewire-api\"  - Use PipeWire Rust API (requires libpipewire-dev)\n");
-        if let Some(ref mode) = self.audio.volume_control_mode {
-            output.push_str(&format!("volume_control_mode = \"{}\"\n", mode));
-        }
-        output.push('\n');
         output.push_str("# Volume response mode (linear/logarithmic/soft-takeover/inertia)\n");
         if let Some(ref curve) = self.audio.volume_curve {
             output.push_str(&format!("volume_curve = \"{}\"\n", curve));
@@ -542,7 +533,6 @@ impl Config {
         mute_buttons: &[(u8, u8)],
         use_pipewire: bool,
         default_sink: &str,
-        volume_control_mode: &str,
         volume_curve: &str,
         debounce_ms: u32,
         applications_sink_search: u64,
@@ -592,7 +582,6 @@ impl Config {
             audio: AudioConfig {
                 use_pipewire: Some(use_pipewire),
                 default_sink: Some(default_sink.to_string()),
-                volume_control_mode: Some(volume_control_mode.to_string()),
                 volume_curve: Some(volume_curve.to_string()),
                 debounce_ms: Some(debounce_ms),
                 applications_sink_search: Some(applications_sink_search),

@@ -3,6 +3,184 @@ use crate::ui::{Tab, UiState};
 use egui::{
     CentralPanel, Color32, Context, CornerRadius, Frame, Margin, RichText, ScrollArea, Stroke,
 };
+use std::collections::HashSet;
+
+/// Marks settings dirty/changed if `after` differs from the value captured before the
+/// widget was drawn. Returns whether it changed, so callers needing extra side effects
+/// (tab switching, cascading a checkbox, etc.) can still branch on it.
+fn track<T: PartialEq>(before: T, after: &T, dirty: &mut bool, changed: &mut bool) -> bool {
+    if before != *after {
+        *dirty = true;
+        *changed = true;
+        true
+    } else {
+        false
+    }
+}
+
+/// Every CC currently claimed by a sink, application, or mute button mapping. A real
+/// nanoKontrol2 control (fader or button) only sends one CC, so these three lists must
+/// not share a CC — besides being physically wrong, two rows with the same CC in the
+/// same list silently collapse into one entry when saved (they're stored as a
+/// `HashMap<"cc_N", _>` keyed by this number).
+fn used_ccs(ui_state: &UiState) -> HashSet<u8> {
+    ui_state
+        .cfg_sinks
+        .iter()
+        .map(|(cc, _)| *cc)
+        .chain(ui_state.cfg_applications.iter().map(|(cc, _)| *cc))
+        .chain(ui_state.cfg_mute_buttons.iter().map(|(cc, _)| *cc))
+        .collect()
+}
+
+/// Renders a (CC -> name) mapping list — used for both sink and application mappings,
+/// which were previously two copy-pasted ~70-line blocks differing only in labels/hints.
+#[allow(clippy::too_many_arguments)]
+fn render_cc_name_list(
+    ui: &mut egui::Ui,
+    entries: &mut Vec<(u8, String)>,
+    new_cc: &mut String,
+    new_name: &mut String,
+    name_hint: &str,
+    used: &HashSet<u8>,
+    add_error: &mut Option<String>,
+    settings_dirty: &mut bool,
+    settings_changed: &mut bool,
+) {
+    let mut to_remove: Option<usize> = None;
+    for (idx, (cc, name)) in entries.iter_mut().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("CC {}:", cc))
+                    .size(12.0)
+                    .color(theme::TEXT_SECONDARY),
+            );
+            let old_name = name.clone();
+            ui.add(egui::TextEdit::singleline(name).desired_width(200.0));
+            track(old_name, name, settings_dirty, settings_changed);
+            if ui.small_button("🗑").clicked() {
+                to_remove = Some(idx);
+                *settings_dirty = true;
+                *settings_changed = true;
+            }
+        });
+    }
+    if let Some(idx) = to_remove {
+        entries.remove(idx);
+    }
+
+    ui.add_space(8.0);
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Add:").size(12.0).color(theme::TEXT_MUTED));
+        ui.add(
+            egui::TextEdit::singleline(new_cc)
+                .desired_width(40.0)
+                .hint_text("CC"),
+        );
+        ui.add(
+            egui::TextEdit::singleline(new_name)
+                .desired_width(150.0)
+                .hint_text(name_hint),
+        );
+        if ui.button("➕ Add").clicked() {
+            *add_error = match new_cc.trim().parse::<u8>() {
+                Ok(_) if new_name.trim().is_empty() => Some("Enter a name".to_string()),
+                Ok(cc) if used.contains(&cc) => {
+                    Some(format!("CC {} is already assigned", cc))
+                }
+                Ok(cc) => {
+                    entries.push((cc, new_name.clone()));
+                    entries.sort_by_key(|(cc, _)| *cc);
+                    new_cc.clear();
+                    new_name.clear();
+                    *settings_dirty = true;
+                    *settings_changed = true;
+                    None
+                }
+                Err(_) => Some("CC must be a number 0-127".to_string()),
+            };
+        }
+    });
+    if let Some(msg) = add_error {
+        ui.label(RichText::new(msg.as_str()).size(11.0).color(theme::ACCENT_RED));
+    }
+}
+
+/// Renders the (button CC -> fader CC) mute button list, mirroring `render_cc_name_list`
+/// but for the `Vec<(u8, u8)>` shape mute buttons use (no editable name, two CC fields
+/// to add). `used` covers button CCs only — validating that `fader_cc` refers to a
+/// mapping that actually exists happens at save/reload via `Config::collect_validation_warnings`.
+#[allow(clippy::too_many_arguments)]
+fn render_mute_button_list(
+    ui: &mut egui::Ui,
+    entries: &mut Vec<(u8, u8)>,
+    new_button_cc: &mut String,
+    new_fader_cc: &mut String,
+    used: &HashSet<u8>,
+    add_error: &mut Option<String>,
+    settings_dirty: &mut bool,
+    settings_changed: &mut bool,
+) {
+    let mut to_remove: Option<usize> = None;
+    for (idx, (button_cc, fader_cc)) in entries.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("CC {} -> CC {}", button_cc, fader_cc))
+                    .size(12.0)
+                    .color(theme::TEXT_SECONDARY),
+            );
+            if ui.small_button("🗑").clicked() {
+                to_remove = Some(idx);
+                *settings_dirty = true;
+                *settings_changed = true;
+            }
+        });
+    }
+    if let Some(idx) = to_remove {
+        entries.remove(idx);
+    }
+
+    ui.add_space(8.0);
+
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Add:").size(12.0).color(theme::TEXT_MUTED));
+        ui.add(
+            egui::TextEdit::singleline(new_button_cc)
+                .desired_width(50.0)
+                .hint_text("Btn CC"),
+        );
+        ui.label(RichText::new("->").color(theme::TEXT_MUTED));
+        ui.add(
+            egui::TextEdit::singleline(new_fader_cc)
+                .desired_width(50.0)
+                .hint_text("Fader CC"),
+        );
+        if ui.button("➕ Add").clicked() {
+            *add_error = match (
+                new_button_cc.trim().parse::<u8>(),
+                new_fader_cc.trim().parse::<u8>(),
+            ) {
+                (Ok(btn_cc), _) if used.contains(&btn_cc) => {
+                    Some(format!("CC {} is already assigned", btn_cc))
+                }
+                (Ok(btn_cc), Ok(fader_cc)) => {
+                    entries.push((btn_cc, fader_cc));
+                    entries.sort_by_key(|(cc, _)| *cc);
+                    new_button_cc.clear();
+                    new_fader_cc.clear();
+                    *settings_dirty = true;
+                    *settings_changed = true;
+                    None
+                }
+                _ => Some("Both CCs must be numbers 0-127".to_string()),
+            };
+        }
+    });
+    if let Some(msg) = add_error {
+        ui.label(RichText::new(msg.as_str()).size(11.0).color(theme::ACCENT_RED));
+    }
+}
 
 pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_functional: bool) -> bool {
     let mut settings_changed = false;
@@ -27,6 +205,8 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                             render_section_header(ui, "MIDI Controls", theme::ACCENT_BLUE);
                             ui.add_space(8.0);
 
+                            let used = used_ccs(ui_state);
+
                             // --- Sink Mappings ---
                             Frame::default()
                                 .fill(theme::BG_SECONDARY)
@@ -47,70 +227,25 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     );
                                     ui.add_space(8.0);
 
-                                    let mut to_remove_sink: Option<usize> = None;
-                                    for (idx, (cc, name)) in
-                                        ui_state.cfg_sinks.iter_mut().enumerate()
-                                    {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!("CC {}:", cc))
-                                                    .size(12.0)
-                                                    .color(theme::TEXT_SECONDARY),
-                                            );
-                                            let old_name = name.clone();
-                                            ui.add(
-                                                egui::TextEdit::singleline(name)
-                                                    .desired_width(200.0),
-                                            );
-                                            if *name != old_name {
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
-                                            if ui.small_button("🗑").clicked() {
-                                                to_remove_sink = Some(idx);
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
-                                        });
-                                    }
-                                    if let Some(idx) = to_remove_sink {
-                                        ui_state.cfg_sinks.remove(idx);
-                                    }
-
-                                    ui.add_space(8.0);
-
-                                    // Add new sink - directly add on button click
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new("Add:")
-                                                .size(12.0)
-                                                .color(theme::TEXT_MUTED),
-                                        );
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut ui_state.new_sink_cc)
-                                                .desired_width(40.0)
-                                                .hint_text("CC"),
-                                        );
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut ui_state.new_sink_name)
-                                                .desired_width(150.0)
-                                                .hint_text("Sink name"),
-                                        );
-                                        if ui.button("➕ Add").clicked() {
-                                            if let Ok(cc) = ui_state.new_sink_cc.parse::<u8>() {
-                                                if !ui_state.new_sink_name.is_empty() {
-                                                    ui_state
-                                                        .cfg_sinks
-                                                        .push((cc, ui_state.new_sink_name.clone()));
-                                                    ui_state.cfg_sinks.sort_by_key(|(cc, _)| *cc);
-                                                    ui_state.new_sink_cc.clear();
-                                                    ui_state.new_sink_name.clear();
-                                                    ui_state.settings_dirty = true;
-                                                    settings_changed = true;
-                                                }
-                                            }
-                                        }
-                                    });
+                                    let UiState {
+                                        cfg_sinks,
+                                        new_sink_cc,
+                                        new_sink_name,
+                                        sink_add_error,
+                                        settings_dirty,
+                                        ..
+                                    } = ui_state;
+                                    render_cc_name_list(
+                                        ui,
+                                        cfg_sinks,
+                                        new_sink_cc,
+                                        new_sink_name,
+                                        "Sink name",
+                                        &used,
+                                        sink_add_error,
+                                        settings_dirty,
+                                        &mut settings_changed,
+                                    );
                                 });
 
                             ui.add_space(8.0);
@@ -135,72 +270,25 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     );
                                     ui.add_space(8.0);
 
-                                    let mut to_remove_app: Option<usize> = None;
-                                    for (idx, (cc, name)) in
-                                        ui_state.cfg_applications.iter_mut().enumerate()
-                                    {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!("CC {}:", cc))
-                                                    .size(12.0)
-                                                    .color(theme::TEXT_SECONDARY),
-                                            );
-                                            let old_name = name.clone();
-                                            ui.add(
-                                                egui::TextEdit::singleline(name)
-                                                    .desired_width(200.0),
-                                            );
-                                            if *name != old_name {
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
-                                            if ui.small_button("🗑").clicked() {
-                                                to_remove_app = Some(idx);
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
-                                        });
-                                    }
-                                    if let Some(idx) = to_remove_app {
-                                        ui_state.cfg_applications.remove(idx);
-                                    }
-
-                                    ui.add_space(8.0);
-
-                                    // Add new app - directly add on button click
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new("Add:")
-                                                .size(12.0)
-                                                .color(theme::TEXT_MUTED),
-                                        );
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut ui_state.new_app_cc)
-                                                .desired_width(40.0)
-                                                .hint_text("CC"),
-                                        );
-                                        ui.add(
-                                            egui::TextEdit::singleline(&mut ui_state.new_app_name)
-                                                .desired_width(150.0)
-                                                .hint_text("App name"),
-                                        );
-                                        if ui.button("➕ Add").clicked() {
-                                            if let Ok(cc) = ui_state.new_app_cc.parse::<u8>() {
-                                                if !ui_state.new_app_name.is_empty() {
-                                                    ui_state
-                                                        .cfg_applications
-                                                        .push((cc, ui_state.new_app_name.clone()));
-                                                    ui_state
-                                                        .cfg_applications
-                                                        .sort_by_key(|(cc, _)| *cc);
-                                                    ui_state.new_app_cc.clear();
-                                                    ui_state.new_app_name.clear();
-                                                    ui_state.settings_dirty = true;
-                                                    settings_changed = true;
-                                                }
-                                            }
-                                        }
-                                    });
+                                    let UiState {
+                                        cfg_applications,
+                                        new_app_cc,
+                                        new_app_name,
+                                        app_add_error,
+                                        settings_dirty,
+                                        ..
+                                    } = ui_state;
+                                    render_cc_name_list(
+                                        ui,
+                                        cfg_applications,
+                                        new_app_cc,
+                                        new_app_name,
+                                        "App name",
+                                        &used,
+                                        app_add_error,
+                                        settings_dirty,
+                                        &mut settings_changed,
+                                    );
 
                                     ui.add_space(8.0);
                                     ui.horizontal(|ui| {
@@ -247,70 +335,24 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                     );
                                     ui.add_space(8.0);
 
-                                    let mut to_remove_mute: Option<usize> = None;
-                                    for (idx, (button_cc, fader_cc)) in
-                                        ui_state.cfg_mute_buttons.iter().enumerate()
-                                    {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "CC {} -> CC {}",
-                                                    button_cc, fader_cc
-                                                ))
-                                                .size(12.0)
-                                                .color(theme::TEXT_SECONDARY),
-                                            );
-                                            if ui.small_button("🗑").clicked() {
-                                                to_remove_mute = Some(idx);
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
-                                        });
-                                    }
-                                    if let Some(idx) = to_remove_mute {
-                                        ui_state.cfg_mute_buttons.remove(idx);
-                                    }
-
-                                    ui.add_space(8.0);
-
-                                    // Add new mute button - directly add on button click
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new("Add:")
-                                                .size(12.0)
-                                                .color(theme::TEXT_MUTED),
-                                        );
-                                        ui.add(
-                                            egui::TextEdit::singleline(
-                                                &mut ui_state.new_mute_button_cc,
-                                            )
-                                            .desired_width(50.0)
-                                            .hint_text("Btn CC"),
-                                        );
-                                        ui.label(RichText::new("->").color(theme::TEXT_MUTED));
-                                        ui.add(
-                                            egui::TextEdit::singleline(
-                                                &mut ui_state.new_mute_fader_cc,
-                                            )
-                                            .desired_width(50.0)
-                                            .hint_text("Fader CC"),
-                                        );
-                                        if ui.button("➕ Add").clicked() {
-                                            if let (Ok(btn_cc), Ok(fader_cc)) = (
-                                                ui_state.new_mute_button_cc.parse::<u8>(),
-                                                ui_state.new_mute_fader_cc.parse::<u8>(),
-                                            ) {
-                                                ui_state.cfg_mute_buttons.push((btn_cc, fader_cc));
-                                                ui_state
-                                                    .cfg_mute_buttons
-                                                    .sort_by_key(|(cc, _)| *cc);
-                                                ui_state.new_mute_button_cc.clear();
-                                                ui_state.new_mute_fader_cc.clear();
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
-                                        }
-                                    });
+                                    let UiState {
+                                        cfg_mute_buttons,
+                                        new_mute_button_cc,
+                                        new_mute_fader_cc,
+                                        mute_add_error,
+                                        settings_dirty,
+                                        ..
+                                    } = ui_state;
+                                    render_mute_button_list(
+                                        ui,
+                                        cfg_mute_buttons,
+                                        new_mute_button_cc,
+                                        new_mute_fader_cc,
+                                        &used,
+                                        mute_add_error,
+                                        settings_dirty,
+                                        &mut settings_changed,
+                                    );
                                 });
 
                             ui.add_space(8.0);
@@ -532,10 +574,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_use_pipewire != ui_state.cfg_use_pipewire {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_use_pipewire,
+                                        &ui_state.cfg_use_pipewire,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
 
                                     ui.add_space(8.0);
 
@@ -553,40 +597,28 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             )
                                             .desired_width(250.0),
                                         );
-                                        if sink_before != ui_state.cfg_default_sink {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
+                                        // Live-queried sinks avoid a typo silently failing later.
+                                        if !ui_state.available_sinks.is_empty() {
+                                            egui::ComboBox::from_id_salt("default_sink_picker")
+                                                .selected_text("pick…")
+                                                .show_ui(ui, |ui| {
+                                                    for sink_name in
+                                                        ui_state.available_sinks.clone()
+                                                    {
+                                                        ui.selectable_value(
+                                                            &mut ui_state.cfg_default_sink,
+                                                            sink_name.clone(),
+                                                            sink_name,
+                                                        );
+                                                    }
+                                                });
                                         }
-                                    });
-
-                                    ui.add_space(8.0);
-
-                                    // Volume Control Mode
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new("Volume Control Mode:")
-                                                .size(12.0)
-                                                .color(theme::TEXT_SECONDARY),
+                                        track(
+                                            sink_before,
+                                            &ui_state.cfg_default_sink,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
                                         );
-                                        let mode_before = ui_state.cfg_volume_control_mode.clone();
-                                        egui::ComboBox::from_id_salt("volume_mode")
-                                            .selected_text(&ui_state.cfg_volume_control_mode)
-                                            .show_ui(ui, |ui| {
-                                                ui.selectable_value(
-                                                    &mut ui_state.cfg_volume_control_mode,
-                                                    "pipewire-api".to_string(),
-                                                    "pipewire-api",
-                                                );
-                                                ui.selectable_value(
-                                                    &mut ui_state.cfg_volume_control_mode,
-                                                    "pw-volume".to_string(),
-                                                    "pw-volume",
-                                                );
-                                            });
-                                        if mode_before != ui_state.cfg_volume_control_mode {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
                                     });
 
                                     ui.add_space(8.0);
@@ -623,10 +655,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                     "inertia",
                                                 );
                                             });
-                                        if curve_before != ui_state.cfg_volume_curve {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            curve_before,
+                                            &ui_state.cfg_volume_curve,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                     });
 
                                     ui.add_space(8.0);
@@ -643,10 +677,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             egui::DragValue::new(&mut ui_state.cfg_debounce_ms)
                                                 .range(0..=1000),
                                         );
-                                        if old_debounce != ui_state.cfg_debounce_ms {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            old_debounce,
+                                            &ui_state.cfg_debounce_ms,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                     });
 
                                     ui.add_space(8.0);
@@ -665,10 +701,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             egui::DragValue::new(&mut search_val).range(1..=120),
                                         );
                                         ui_state.cfg_applications_sink_search = search_val as u64;
-                                        if old_search != ui_state.cfg_applications_sink_search {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            old_search,
+                                            &ui_state.cfg_applications_sink_search,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                     });
                                 });
 
@@ -703,14 +741,20 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .text_edit_singleline(&mut ui_state.window_width_str)
                                             .changed()
                                         {
-                                            // Try to parse and update the value
+                                            // Only mark dirty on a value that actually parses,
+                                            // so mid-edit garbage doesn't flag "unsaved changes".
                                             if let Ok(val) =
                                                 ui_state.window_width_str.parse::<u32>()
                                             {
+                                                let old = ui_state.cfg_window_width;
                                                 ui_state.cfg_window_width = val.max(400).min(3000);
+                                                track(
+                                                    old,
+                                                    &ui_state.cfg_window_width,
+                                                    &mut ui_state.settings_dirty,
+                                                    &mut settings_changed,
+                                                );
                                             }
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
                                         }
 
                                         ui.add_space(16.0);
@@ -724,14 +768,18 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .text_edit_singleline(&mut ui_state.window_height_str)
                                             .changed()
                                         {
-                                            // Try to parse and update the value
                                             if let Ok(val) =
                                                 ui_state.window_height_str.parse::<u32>()
                                             {
+                                                let old = ui_state.cfg_window_height;
                                                 ui_state.cfg_window_height = val.max(300).min(2000);
+                                                track(
+                                                    old,
+                                                    &ui_state.cfg_window_height,
+                                                    &mut ui_state.settings_dirty,
+                                                    &mut settings_changed,
+                                                );
                                             }
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
                                         }
                                     });
 
@@ -774,10 +822,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                     "light",
                                                 );
                                             });
-                                        if theme_before != ui_state.cfg_theme {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            theme_before,
+                                            &ui_state.cfg_theme,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                     });
 
                                     ui.add_space(8.0);
@@ -790,15 +840,18 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_show_console != ui_state.cfg_show_console {
+                                    if track(
+                                        old_show_console,
+                                        &ui_state.cfg_show_console,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    ) {
                                         // Apply tab visibility change immediately in the same frame.
                                         if !ui_state.cfg_show_console
                                             && ui_state.selected_tab == Tab::Console
                                         {
                                             ui_state.selected_tab = Tab::Control;
                                         }
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
                                     }
 
                                     ui.add_space(8.0);
@@ -811,10 +864,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_show_spectrum != ui_state.cfg_show_spectrum {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_show_spectrum,
+                                        &ui_state.cfg_show_spectrum,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
 
                                     ui.add_space(8.0);
 
@@ -826,10 +881,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_show_cc_assignments != ui_state.show_cc_assignments {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_show_cc_assignments,
+                                        &ui_state.show_cc_assignments,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
 
                                     ui.add_space(8.0);
 
@@ -841,10 +898,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_show_device_health != ui_state.show_device_health {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_show_device_health,
+                                        &ui_state.show_device_health,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
 
                                     // ---- System Tray ----
                                     ui.add_space(8.0);
@@ -862,10 +921,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_tray != ui_state.enable_tray {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_tray,
+                                        &ui_state.enable_tray,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
                                     if ui_state.enable_tray {
                                         let old_close = ui_state.close_to_tray;
                                         ui.checkbox(
@@ -874,10 +935,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 .size(12.0)
                                                 .color(theme::TEXT_SECONDARY),
                                         );
-                                        if old_close != ui_state.close_to_tray {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            old_close,
+                                            &ui_state.close_to_tray,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                         let old_start = ui_state.start_minimized;
                                         ui.checkbox(
                                             &mut ui_state.start_minimized,
@@ -885,10 +948,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 .size(12.0)
                                                 .color(theme::TEXT_SECONDARY),
                                         );
-                                        if old_start != ui_state.start_minimized {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            old_start,
+                                            &ui_state.start_minimized,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                         ui.label(
                                             RichText::new(
                                                 "Note: Tray toggle takes effect after Save + Restart",
@@ -910,10 +975,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                     .size(11.0)
                                                     .color(theme::TEXT_SECONDARY),
                                             );
-                                            if old_stereo != ui_state.cfg_spectrum_stereo_mode {
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
+                                            track(
+                                                old_stereo,
+                                                &ui_state.cfg_spectrum_stereo_mode,
+                                                &mut ui_state.settings_dirty,
+                                                &mut settings_changed,
+                                            );
 
                                             // Show waterfall
                                             let old_waterfall =
@@ -924,11 +991,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                     .size(11.0)
                                                     .color(theme::TEXT_SECONDARY),
                                             );
-                                            if old_waterfall != ui_state.cfg_spectrum_show_waterfall
-                                            {
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
+                                            track(
+                                                old_waterfall,
+                                                &ui_state.cfg_spectrum_show_waterfall,
+                                                &mut ui_state.settings_dirty,
+                                                &mut settings_changed,
+                                            );
 
                                             // Show frequency labels
                                             let old_labels = ui_state.cfg_spectrum_show_labels;
@@ -938,10 +1006,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                     .size(11.0)
                                                     .color(theme::TEXT_SECONDARY),
                                             );
-                                            if old_labels != ui_state.cfg_spectrum_show_labels {
-                                                ui_state.settings_dirty = true;
-                                                settings_changed = true;
-                                            }
+                                            track(
+                                                old_labels,
+                                                &ui_state.cfg_spectrum_show_labels,
+                                                &mut ui_state.settings_dirty,
+                                                &mut settings_changed,
+                                            );
 
                                             // Spectrum color palette
                                             ui.horizontal(|ui| {
@@ -995,12 +1065,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                     );
                                                 });
 
-                                                if palette_before
-                                                    != ui_state.cfg_spectrum_color_palette
-                                                {
-                                                    ui_state.settings_dirty = true;
-                                                    settings_changed = true;
-                                                }
+                                                track(
+                                                    palette_before,
+                                                    &ui_state.cfg_spectrum_color_palette,
+                                                    &mut ui_state.settings_dirty,
+                                                    &mut settings_changed,
+                                                );
                                             });
 
                                             ui.add_space(8.0);
@@ -1035,10 +1105,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                         }
                                                     });
 
-                                                if sink_before != ui_state.cfg_spectrum_sink_name {
-                                                    ui_state.settings_dirty = true;
-                                                    settings_changed = true;
-                                                }
+                                                track(
+                                                    sink_before,
+                                                    &ui_state.cfg_spectrum_sink_name,
+                                                    &mut ui_state.settings_dirty,
+                                                    &mut settings_changed,
+                                                );
                                             });
                                         });
                                     }
@@ -1058,10 +1130,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             egui::DragValue::new(&mut lines_val).range(10..=10000),
                                         );
                                         ui_state.cfg_max_console_lines = lines_val as usize;
-                                        if old_lines != ui_state.cfg_max_console_lines {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            old_lines,
+                                            &ui_state.cfg_max_console_lines,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                     });
                                 });
 
@@ -1093,13 +1167,15 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_logging != ui_state.cfg_logging_enabled {
-                                        if !ui_state.cfg_logging_enabled {
-                                            // Keep console visibility consistent when logging is disabled.
-                                            ui_state.cfg_show_console = false;
-                                        }
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
+                                    if track(
+                                        old_logging,
+                                        &ui_state.cfg_logging_enabled,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    ) && !ui_state.cfg_logging_enabled
+                                    {
+                                        // Keep console visibility consistent when logging is disabled.
+                                        ui_state.cfg_show_console = false;
                                     }
 
                                     ui.add_space(8.0);
@@ -1146,10 +1222,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                     "trace",
                                                 );
                                             });
-                                        if level_before != ui_state.cfg_log_level {
-                                            ui_state.settings_dirty = true;
-                                            settings_changed = true;
-                                        }
+                                        track(
+                                            level_before,
+                                            &ui_state.cfg_log_level,
+                                            &mut ui_state.settings_dirty,
+                                            &mut settings_changed,
+                                        );
                                     });
 
                                     ui.add_space(8.0);
@@ -1162,10 +1240,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_timestamps != ui_state.cfg_timestamps {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_timestamps,
+                                        &ui_state.cfg_timestamps,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
 
                                     ui.add_space(8.0);
 
@@ -1177,10 +1257,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_fader_events != ui_state.cfg_log_fader_events {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_fader_events,
+                                        &ui_state.cfg_log_fader_events,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
 
                                     ui.add_space(8.0);
 
@@ -1192,10 +1274,12 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                             .size(13.0)
                                             .color(theme::TEXT_PRIMARY),
                                     );
-                                    if old_device_info != ui_state.cfg_log_device_info {
-                                        ui_state.settings_dirty = true;
-                                        settings_changed = true;
-                                    }
+                                    track(
+                                        old_device_info,
+                                        &ui_state.cfg_log_device_info,
+                                        &mut ui_state.settings_dirty,
+                                        &mut settings_changed,
+                                    );
                                 });
 
                             ui.add_space(8.0);

@@ -25,6 +25,7 @@ pub struct UiState {
     pub app_muted_volume: Vec<u8>,           // Store previous volume when muted
     pub app_available: Vec<bool>,            // Track if app is currently available
     pub app_input_count: Vec<usize>,         // Number of matching sink inputs per app fader
+    pub available_sinks: Vec<String>, // Live sink names from PipeWire, for Settings pickers
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
     pub max_console_lines: usize, // Max number of console messages to keep
     // Tray settings
@@ -36,7 +37,6 @@ pub struct UiState {
     // Editable config fields - Audio
     pub cfg_use_pipewire: bool,
     pub cfg_default_sink: String,
-    pub cfg_volume_control_mode: String,
     pub cfg_volume_curve: String,
     pub cfg_debounce_ms: u32,
     pub cfg_applications_sink_search: u64,
@@ -71,6 +71,9 @@ pub struct UiState {
     pub new_app_name: String,
     pub new_mute_button_cc: String,
     pub new_mute_fader_cc: String,
+    pub sink_add_error: Option<String>,
+    pub app_add_error: Option<String>,
+    pub mute_add_error: Option<String>,
     pub window_width_str: String,
     pub window_height_str: String,
 
@@ -148,6 +151,7 @@ impl UiState {
             app_muted_volume: vec![0; app_count],
             app_available: vec![true; app_count],
             app_input_count: vec![0; app_count],
+            available_sinks: Vec::new(),
             console_output: Vec::new(),
             max_console_lines,
             enable_tray,
@@ -156,11 +160,6 @@ impl UiState {
             config_path,
             cfg_use_pipewire: config.audio.use_pipewire.unwrap_or(true),
             cfg_default_sink: config.audio.default_sink.clone().unwrap_or_default(),
-            cfg_volume_control_mode: config
-                .audio
-                .volume_control_mode
-                .clone()
-                .unwrap_or_else(|| "pipewire-api".to_string()),
             cfg_volume_curve: config
                 .audio
                 .volume_curve
@@ -202,6 +201,9 @@ impl UiState {
             new_app_name: String::new(),
             new_mute_button_cc: String::new(),
             new_mute_fader_cc: String::new(),
+            sink_add_error: None,
+            app_add_error: None,
+            mute_add_error: None,
             settings_category: 0,
             show_midi_ui_modal: false,
             midi_ui_texture: None,

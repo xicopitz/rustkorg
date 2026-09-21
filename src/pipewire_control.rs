@@ -15,17 +15,14 @@ pub struct PipeWireController {
     sink_volume_cache: Arc<Mutex<HashMap<String, CachedVolume>>>,
     app_volume_cache: Arc<Mutex<HashMap<String, CachedVolume>>>,
     default_sink_name: String,
-    // Cached sink index — avoids double subprocess on every app volume operation
-    cached_sink_index: Mutex<Option<(String, u32, Instant)>>,
     // Set by background subscribe thread when sink-inputs change
     availability_changed: Arc<AtomicBool>,
 }
 
 const VOLUME_CACHE_TTL: Duration = Duration::from_secs(1);
-const SINK_INDEX_CACHE_TTL: Duration = Duration::from_secs(30);
 
 impl PipeWireController {
-    pub fn new(_use_api: bool, default_sink_name: &str) -> Self {
+    pub fn new(default_sink_name: &str) -> Self {
         // Start as true so the first availability check runs immediately
         let availability_changed = Arc::new(AtomicBool::new(true));
         Self::spawn_subscribe_listener(Arc::clone(&availability_changed));
@@ -33,7 +30,6 @@ impl PipeWireController {
             sink_volume_cache: Arc::new(Mutex::new(HashMap::new())),
             app_volume_cache: Arc::new(Mutex::new(HashMap::new())),
             default_sink_name: default_sink_name.to_string(),
-            cached_sink_index: Mutex::new(None),
             availability_changed,
         }
     }
@@ -78,55 +74,6 @@ impl PipeWireController {
             // Retry after a short delay if pactl subscribe exits unexpectedly
             std::thread::sleep(Duration::from_secs(5));
         });
-    }
-
-    fn get_sink_index(&self, sink_name: &str) -> Option<u32> {
-        // Check cached value first — avoids an extra `pactl list sinks` subprocess
-        // on every call to get_matching_app_inputs / list_active_application_names
-        if let Ok(cache) = self.cached_sink_index.lock() {
-            if let Some((ref cached_name, cached_idx, cached_at)) = *cache {
-                if cached_name == sink_name && cached_at.elapsed() < SINK_INDEX_CACHE_TTL {
-                    return Some(cached_idx);
-                }
-            }
-        }
-
-        let result = Self::fetch_sink_index(sink_name);
-
-        if let Some(idx) = result {
-            if let Ok(mut cache) = self.cached_sink_index.lock() {
-                *cache = Some((sink_name.to_string(), idx, Instant::now()));
-            }
-        }
-
-        result
-    }
-
-    fn fetch_sink_index(sink_name: &str) -> Option<u32> {
-        if let Ok(output) = Command::new("pactl").args(&["list", "sinks"]).output() {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                let lines: Vec<&str> = text.lines().collect();
-
-                let mut current_index: Option<u32> = None;
-                for line in &lines {
-                    if line.starts_with("Sink #") {
-                        if let Some(idx_str) = line
-                            .strip_prefix("Sink #")
-                            .and_then(|s| s.split_whitespace().next())
-                        {
-                            current_index = idx_str.parse::<u32>().ok();
-                        }
-                    }
-                    if let Some(idx) = current_index {
-                        if line.trim().starts_with("Name:") && line.contains(sink_name) {
-                            return Some(idx);
-                        }
-                    }
-                }
-            }
-        }
-        None
     }
 
     fn get_matching_app_inputs(&self, app_name: &str) -> Vec<(u32, u8)> {
@@ -241,17 +188,20 @@ impl PipeWireController {
         Ok(())
     }
 
-    pub fn get_volume_for_sink(&self, sink_name: &str) -> u8 {
+    /// Returns `None` if the sink doesn't exist or `pactl` failed/couldn't be parsed,
+    /// so callers can tell "really 50%" apart from "couldn't read it" instead of both
+    /// looking identical.
+    pub fn get_volume_for_sink(&self, sink_name: &str) -> Option<u8> {
         // Check cache first
         if let Ok(cache) = self.sink_volume_cache.lock() {
             if let Some(cached) = cache.get(sink_name) {
                 if cached.timestamp.elapsed() < VOLUME_CACHE_TTL {
-                    return cached.value;
+                    return Some(cached.value);
                 }
             }
         }
 
-        let result = Self::fetch_sink_volume(sink_name);
+        let result = Self::fetch_sink_volume(sink_name)?;
 
         // Update cache
         if let Ok(mut cache) = self.sink_volume_cache.lock() {
@@ -264,28 +214,30 @@ impl PipeWireController {
             );
         }
 
-        result
+        Some(result)
     }
 
     #[inline]
-    fn fetch_sink_volume(sink_name: &str) -> u8 {
-        if let Ok(output) = Command::new("pactl")
+    fn fetch_sink_volume(sink_name: &str) -> Option<u8> {
+        let output = Command::new("pactl")
             .args(&["get-sink-volume", sink_name])
             .output()
-        {
-            if output.status.success() {
-                let text = String::from_utf8_lossy(&output.stdout);
-                // Parse output like "Volume: front-left: 65536 /  100% / 0.00 dB"
-                for part in text.split('/') {
-                    if let Some(pct) = part.trim().strip_suffix('%') {
-                        if let Ok(vol) = pct.trim().parse::<u8>() {
-                            return vol;
-                        }
-                    }
+            .ok()?;
+
+        if !output.status.success() {
+            return None;
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        // Parse output like "Volume: front-left: 65536 /  100% / 0.00 dB"
+        for part in text.split('/') {
+            if let Some(pct) = part.trim().strip_suffix('%') {
+                if let Ok(vol) = pct.trim().parse::<u8>() {
+                    return Some(vol);
                 }
             }
         }
-        50 // Default fallback
+        None
     }
 
     pub fn set_volume_for_app(&self, app_name: &str, volume_percent: u8) -> Result<()> {
@@ -302,40 +254,54 @@ impl PipeWireController {
             return Ok(());
         }
 
+        let mut errors = Vec::new();
         for (input_index, _) in &matching_inputs {
-            let output = Command::new("pactl")
+            let result = Command::new("pactl")
                 .args(&[
                     "set-sink-input-volume",
                     &input_index.to_string(),
                     &format!("{}%", volume_percent),
                 ])
-                .output()?;
+                .output();
 
-            if !output.status.success() {
-                return Err(anyhow!(
-                    "pactl set-sink-input-volume failed for app '{}' input {} ({}%): {}",
-                    app_name,
+            match result {
+                Ok(output) if !output.status.success() => errors.push(format!(
+                    "input {}: {}",
                     input_index,
-                    volume_percent,
-                    String::from_utf8_lossy(&output.stderr)
-                ));
+                    String::from_utf8_lossy(&output.stderr).trim()
+                )),
+                Err(e) => errors.push(format!("input {}: {}", input_index, e)),
+                Ok(_) => {}
             }
+        }
+
+        if !errors.is_empty() {
+            return Err(anyhow!(
+                "pactl set-sink-input-volume failed for app '{}' ({}%) on {} of {} streams: {}",
+                app_name,
+                volume_percent,
+                errors.len(),
+                matching_inputs.len(),
+                errors.join("; ")
+            ));
         }
 
         Ok(())
     }
 
-    pub fn get_volume_for_app(&self, app_name: &str) -> u8 {
+    /// Returns `None` if the app has no matching sink-inputs right now, so callers can
+    /// tell "really 50%" apart from "app isn't playing anything".
+    pub fn get_volume_for_app(&self, app_name: &str) -> Option<u8> {
         // Check cache first
         if let Ok(cache) = self.app_volume_cache.lock() {
             if let Some(cached) = cache.get(app_name) {
                 if cached.timestamp.elapsed() < VOLUME_CACHE_TTL {
-                    return cached.value;
+                    return Some(cached.value);
                 }
             }
         }
 
-        let result = self.fetch_app_volume(app_name);
+        let result = self.fetch_app_volume(app_name)?;
 
         // Update cache
         if let Ok(mut cache) = self.app_volume_cache.lock() {
@@ -348,16 +314,16 @@ impl PipeWireController {
             );
         }
 
-        result
+        Some(result)
     }
 
-    fn fetch_app_volume(&self, app_name: &str) -> u8 {
+    fn fetch_app_volume(&self, app_name: &str) -> Option<u8> {
         let matching_inputs = self.get_matching_app_inputs(app_name);
         if matching_inputs.is_empty() {
-            return 50;
+            return None;
         }
         let sum: u32 = matching_inputs.iter().map(|(_, v)| *v as u32).sum();
-        (sum / matching_inputs.len() as u32) as u8
+        Some((sum / matching_inputs.len() as u32) as u8)
     }
 
     /// Checks availability and input count in a single `pactl list sink-inputs` call.
@@ -369,10 +335,21 @@ impl PipeWireController {
 
     pub fn set_default_sink_name(&mut self, sink_name: &str) {
         self.default_sink_name = sink_name.to_string();
-        // Invalidate cached sink index — the target sink has changed
-        if let Ok(mut cache) = self.cached_sink_index.lock() {
-            *cache = None;
-        }
+    }
+
+    /// Lists real sink names currently known to PipeWire/PulseAudio, so Settings can offer
+    /// a picker instead of relying on free-text entry that fails silently on a typo.
+    pub fn list_sink_names(&self) -> Vec<String> {
+        let output = match Command::new("pactl").args(&["list", "sinks", "short"]).output() {
+            Ok(output) if output.status.success() => output,
+            _ => return Vec::new(),
+        };
+
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| line.split_whitespace().nth(1))
+            .map(String::from)
+            .collect()
     }
 
     pub fn list_active_application_names(&self) -> Vec<String> {
@@ -437,18 +414,6 @@ impl PipeWireController {
     }
 }
 
-fn matched_sink(current_sink: Option<u32>, target_sink: u32) -> bool {
-    match current_sink {
-        Some(idx) => idx == target_sink,
-        None => false,
-    }
-}
-
-#[inline]
-fn parse_pipewire_u32(value: &str) -> Option<u32> {
-    value.trim().trim_start_matches('#').parse::<u32>().ok()
-}
-
 #[inline]
 fn extract_pipewire_property_value(line: &str) -> Option<String> {
     let trimmed = line.trim();
@@ -482,15 +447,7 @@ fn normalize_app_name(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_pipewire_property_value, normalize_app_name, parse_pipewire_u32};
-
-    #[test]
-    fn parse_pipewire_ids_strips_hash_prefix() {
-        assert_eq!(parse_pipewire_u32("#42"), Some(42));
-        assert_eq!(parse_pipewire_u32("42"), Some(42));
-        assert_eq!(parse_pipewire_u32(" #7 "), Some(7));
-        assert_eq!(parse_pipewire_u32("abc"), None);
-    }
+    use super::{extract_pipewire_property_value, normalize_app_name};
 
     #[test]
     fn app_name_matching_ignores_property_names() {

@@ -14,7 +14,6 @@ midir = "0.9"
 ksni = "0.2"
 egui = "0.33"
 eframe = { version = "0.33", features = ["default_fonts"] }
-tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1.0"
 log = "0.4"

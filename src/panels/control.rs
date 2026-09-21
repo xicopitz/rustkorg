@@ -196,9 +196,7 @@ pub fn render_faders_tab(
                                             let is_muted = ui_state.system_muted[display_idx];
                                             let is_available =
                                                 ui_state.system_available[display_idx];
-                                            let old_value =
-                                                ui_state.system_fader_values[display_idx];
-                                            render_fader_with_mute(
+                                            let slider_changed = render_fader_with_mute(
                                                 ui,
                                                 &mut ui_state.system_fader_values[display_idx],
                                                 &ui_state.system_fader_labels[display_idx].1,
@@ -210,9 +208,7 @@ pub fn render_faders_tab(
                                                 &mut ui_state.system_peak_values[display_idx],
                                                 &mut ui_state.system_peak_times[display_idx],
                                             );
-                                            if old_value
-                                                != ui_state.system_fader_values[display_idx]
-                                            {
+                                            if slider_changed {
                                                 changed_faders.push((
                                                     true,
                                                     display_idx,
@@ -302,8 +298,7 @@ pub fn render_faders_tab(
 
                                             let is_muted = ui_state.app_muted[display_idx];
                                             let is_available = ui_state.app_available[display_idx];
-                                            let old_value = ui_state.app_fader_values[display_idx];
-                                            render_fader_with_mute(
+                                            let slider_changed = render_fader_with_mute(
                                                 ui,
                                                 &mut ui_state.app_fader_values[display_idx],
                                                 &ui_state.app_fader_labels[display_idx].1,
@@ -321,7 +316,7 @@ pub fn render_faders_tab(
                                                 &mut ui_state.app_peak_values[display_idx],
                                                 &mut ui_state.app_peak_times[display_idx],
                                             );
-                                            if old_value != ui_state.app_fader_values[display_idx] {
+                                            if slider_changed {
                                                 changed_faders.push((
                                                     false,
                                                     display_idx,
@@ -474,7 +469,11 @@ fn render_fader_with_mute(
     input_count: Option<usize>,
     peak_value: &mut u8,
     peak_time: &mut std::time::Instant,
-) {
+) -> bool {
+    // Tracked via each widget's own Response::changed()/clicked() instead of diffing
+    // fader_value before/after rendering, so it can't misfire from an unrelated write.
+    let mut changed = false;
+
     // Container for each fader
     Frame::default()
         .fill(theme::BG_SECONDARY)
@@ -557,6 +556,7 @@ fn render_fader_with_mute(
                     // Minus button
                     if ui.button("−").clicked() {
                         *fader_value = fader_value.saturating_sub(1);
+                        changed = true;
                     }
 
                     ui.add_space(4.0);
@@ -568,27 +568,35 @@ fn render_fader_with_mute(
                         Color32::from_rgb(255, 255, 255)
                     };
 
-                    // Set slider colors
-                    ui.style_mut().visuals.selection.bg_fill = slider_handle_color;
-                    ui.style_mut().visuals.widgets.active.bg_fill = slider_handle_color;
-                    ui.style_mut().visuals.widgets.hovered.bg_fill = slider_handle_color;
-                    ui.style_mut().visuals.widgets.inactive.bg_fill = Color32::from_rgb(60, 60, 70);
+                    // Scoped so these overrides don't bleed into widgets drawn after this
+                    // fader (e.g. the next fader's own colors, or anything after the loop).
+                    ui.scope(|ui| {
+                        ui.style_mut().visuals.selection.bg_fill = slider_handle_color;
+                        ui.style_mut().visuals.widgets.active.bg_fill = slider_handle_color;
+                        ui.style_mut().visuals.widgets.hovered.bg_fill = slider_handle_color;
+                        ui.style_mut().visuals.widgets.inactive.bg_fill =
+                            Color32::from_rgb(60, 60, 70);
 
-                    // Add border to slider widget
-                    ui.style_mut().visuals.selection.stroke =
-                        Stroke::new(2.0_f32, slider_handle_color);
-                    ui.style_mut().visuals.widgets.active.bg_stroke =
-                        Stroke::new(2.0_f32, slider_handle_color);
-                    ui.style_mut().visuals.widgets.hovered.bg_stroke =
-                        Stroke::new(2.0_f32, slider_handle_color);
+                        ui.style_mut().visuals.selection.stroke =
+                            Stroke::new(2.0_f32, slider_handle_color);
+                        ui.style_mut().visuals.widgets.active.bg_stroke =
+                            Stroke::new(2.0_f32, slider_handle_color);
+                        ui.style_mut().visuals.widgets.hovered.bg_stroke =
+                            Stroke::new(2.0_f32, slider_handle_color);
 
-                    ui.add(Slider::new(fader_value, 0..=127).show_value(false).text(""));
+                        let response =
+                            ui.add(Slider::new(&mut *fader_value, 0..=127).show_value(false).text(""));
+                        if response.changed() {
+                            changed = true;
+                        }
+                    });
 
                     ui.add_space(4.0);
 
                     // Plus button
                     if ui.button("+").clicked() {
                         *fader_value = fader_value.saturating_add(1);
+                        changed = true;
                     }
                 });
 
@@ -663,4 +671,6 @@ fn render_fader_with_mute(
                 }
             });
         });
+
+    changed
 }
