@@ -50,6 +50,7 @@ pub struct UiConfig {
     pub max_console_lines: Option<usize>,
     pub show_cc_assignments: Option<bool>,
     pub show_device_health: Option<bool>,
+    pub show_graph: Option<bool>,
     pub show_spectrum: Option<bool>,
     pub spectrum_stereo_mode: Option<bool>,
     pub spectrum_show_waterfall: Option<bool>,
@@ -286,6 +287,7 @@ impl Default for Config {
                 max_console_lines: Some(1000),
                 show_cc_assignments: Some(true),
                 show_device_health: Some(true),
+                show_graph: Some(true),
                 show_spectrum: Some(true),
                 spectrum_stereo_mode: Some(false),
                 spectrum_show_waterfall: Some(false),
@@ -462,6 +464,11 @@ impl Config {
             output.push_str(&format!("show_device_health = {}\n", show));
         }
         output.push('\n');
+        output.push_str("# Show the audio routing (Graph) tab\n");
+        if let Some(show) = self.ui.show_graph {
+            output.push_str(&format!("show_graph = {}\n", show));
+        }
+        output.push('\n');
         output.push_str("# Spectrum analyzer settings\n");
         if let Some(show) = self.ui.show_spectrum {
             output.push_str(&format!("show_spectrum = {}\n", show));
@@ -543,6 +550,7 @@ impl Config {
         max_console_lines: usize,
         show_cc_assignments: bool,
         show_device_health: bool,
+        show_graph: bool,
         show_spectrum: bool,
         spectrum_stereo_mode: bool,
         spectrum_show_waterfall: bool,
@@ -594,6 +602,7 @@ impl Config {
                 max_console_lines: Some(max_console_lines),
                 show_cc_assignments: Some(show_cc_assignments),
                 show_device_health: Some(show_device_health),
+                show_graph: Some(show_graph),
                 show_spectrum: Some(show_spectrum),
                 spectrum_stereo_mode: Some(spectrum_stereo_mode),
                 spectrum_show_waterfall: Some(spectrum_show_waterfall),

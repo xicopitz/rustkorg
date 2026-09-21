@@ -467,6 +467,9 @@ impl MidiVolumeApp {
         self.last_availability_check = Instant::now();
         if let Ok(pipewire) = self.control.pipewire.lock() {
             self.ui_state.available_sinks = pipewire.list_sink_names();
+            self.ui_state.graph_sinks = pipewire.list_sinks_indexed();
+            self.ui_state.graph_streams = pipewire.list_all_sink_inputs();
+            self.ui_state.graph_loopback_routes = pipewire.list_loopback_routes();
 
             for i in 0..self.ui_state.system_fader_labels.len() {
                 let sink_name = &self.ui_state.system_fader_labels[i].1;
@@ -518,6 +521,7 @@ impl MidiVolumeApp {
             self.ui_state.cfg_max_console_lines,
             self.ui_state.show_cc_assignments,
             self.ui_state.show_device_health,
+            self.ui_state.cfg_show_graph,
             self.ui_state.cfg_show_spectrum,
             self.ui_state.cfg_spectrum_stereo_mode,
             self.ui_state.cfg_spectrum_show_waterfall,
@@ -556,6 +560,8 @@ impl MidiVolumeApp {
                         reloaded_config.ui.show_cc_assignments.unwrap_or(true);
                     self.ui_state.show_device_health =
                         reloaded_config.ui.show_device_health.unwrap_or(true);
+                    self.ui_state.cfg_show_graph =
+                        reloaded_config.ui.show_graph.unwrap_or(true);
 
                     let CcMapping {
                         control: mapping,
@@ -788,6 +794,10 @@ impl eframe::App for MidiVolumeApp {
 
         let changed_faders = match self.ui_state.selected_tab {
             crate::ui::Tab::Control => self.ui_state.render_faders_tab(ctx),
+            crate::ui::Tab::Graph => {
+                self.ui_state.render_graph_tab(ctx);
+                Vec::new()
+            }
             crate::ui::Tab::Console => {
                 self.ui_state.render_console_tab(ctx);
                 Vec::new()

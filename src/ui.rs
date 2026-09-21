@@ -2,12 +2,13 @@ use egui::*;
 
 pub use crate::panels::theme;
 use crate::panels::VisualizerState;
-pub use crate::panels::{render_console_tab, render_faders_tab, render_settings_tab};
+pub use crate::panels::{render_console_tab, render_faders_tab, render_graph_tab, render_settings_tab};
 use crate::spectrum::SpectrumData;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Control,
+    Graph,
     Console,
     Settings,
 }
@@ -26,6 +27,9 @@ pub struct UiState {
     pub app_available: Vec<bool>,            // Track if app is currently available
     pub app_input_count: Vec<usize>,         // Number of matching sink inputs per app fader
     pub available_sinks: Vec<String>, // Live sink names from PipeWire, for Settings pickers
+    pub graph_sinks: Vec<(u32, String)>, // (sink index, name) — Graph tab nodes
+    pub graph_streams: Vec<(u32, String, Option<u32>)>, // (input index, app name, sink index) — Graph tab nodes
+    pub graph_loopback_routes: Vec<(String, String)>, // (software sink name, hardware sink name) — Graph tab
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
     pub max_console_lines: usize, // Max number of console messages to keep
     // Tray settings
@@ -93,6 +97,7 @@ pub struct UiState {
     pub show_cc_assignments: bool,
     pub cc_assignments_expanded: bool,
     pub show_device_health: bool,
+    pub cfg_show_graph: bool,
 
     // Spectrum analyzer state
     pub spectrum_data: SpectrumData,
@@ -152,6 +157,9 @@ impl UiState {
             app_available: vec![true; app_count],
             app_input_count: vec![0; app_count],
             available_sinks: Vec::new(),
+            graph_sinks: Vec::new(),
+            graph_streams: Vec::new(),
+            graph_loopback_routes: Vec::new(),
             console_output: Vec::new(),
             max_console_lines,
             enable_tray,
@@ -215,6 +223,7 @@ impl UiState {
             show_cc_assignments: config.ui.show_cc_assignments.unwrap_or(true),
             cc_assignments_expanded: true,
             show_device_health: config.ui.show_device_health.unwrap_or(true),
+            cfg_show_graph: config.ui.show_graph.unwrap_or(true),
             spectrum_data: SpectrumData::default(),
             visualizer_state: VisualizerState::default(),
             spectrum_attack_speed: 26.0,
@@ -300,6 +309,10 @@ impl UiState {
         {
             self.selected_tab = Tab::Control;
         }
+        // Auto-switch from Graph tab if it was just disabled in Settings.
+        if !self.cfg_show_graph && self.selected_tab == Tab::Graph {
+            self.selected_tab = Tab::Control;
+        }
 
         TopBottomPanel::top("tab_panel")
             .frame(
@@ -321,6 +334,19 @@ impl UiState {
                         .clicked()
                     {
                         self.selected_tab = Tab::Control;
+                    }
+
+                    // Graph tab
+                    if self.cfg_show_graph {
+                        if ui
+                            .selectable_label(
+                                self.selected_tab == Tab::Graph,
+                                RichText::new("🔀 Graph").size(14.0),
+                            )
+                            .clicked()
+                        {
+                            self.selected_tab = Tab::Graph;
+                        }
                     }
 
                     // Console tab (only show when explicitly enabled and logging is on)
@@ -354,6 +380,10 @@ impl UiState {
 
     pub fn render_faders_tab(&mut self, ctx: &Context) -> Vec<(bool, usize, u8)> {
         render_faders_tab(self, ctx)
+    }
+
+    pub fn render_graph_tab(&mut self, ctx: &Context) {
+        render_graph_tab(self, ctx)
     }
 
     pub fn render_console_tab(&mut self, ctx: &Context) {
