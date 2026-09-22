@@ -6,10 +6,23 @@
 use crate::midi::{MidiListener, MidiMessage, MidiOutput};
 use crate::pipewire_control::PipeWireController;
 use log::{info, warn};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// Cap on queued console messages — bounds memory if the GUI window stays closed for a
+/// long time while MIDI activity keeps happening in the background.
+const CONSOLE_LOG_CAPACITY: usize = 300;
+
+fn push_console(log: &Arc<Mutex<VecDeque<String>>>, message: String) {
+    if let Ok(mut log) = log.lock() {
+        log.push_back(message);
+        while log.len() > CONSOLE_LOG_CAPACITY {
+            log.pop_front();
+        }
+    }
+}
 
 const MIDI_TO_PERCENT_FACTOR: f32 = 100.0 / 127.0;
 const MIDI_FAST_MOVE_DELTA_PERCENT: u8 = 2;
@@ -114,12 +127,24 @@ pub struct ControlHandle {
     pub midi_connected: Arc<AtomicBool>,
     pub midi_output_connected: Arc<AtomicBool>,
     pub midi_reconnect_count: Arc<AtomicU32>,
+    /// MIDI/mute activity messages, queued here since the control thread runs whether or
+    /// not a GUI window exists — the GUI drains this each frame into its Console tab.
+    pub console_log: Arc<Mutex<VecDeque<String>>>,
     ui_input_tx: mpsc::Sender<ThreadInput>,
     // Kept alive for the life of the process so the MIDI listener's sender stays open.
     _midi_listener: Arc<MidiListener>,
 }
 
 impl ControlHandle {
+    /// Drains every console message queued since the last call. The GUI should call this
+    /// once per frame and feed the results into its own console log.
+    pub fn drain_console_log(&self) -> Vec<String> {
+        self.console_log
+            .lock()
+            .map(|mut log| log.drain(..).collect())
+            .unwrap_or_default()
+    }
+
     pub fn send_slider_changed(&self, is_sink: bool, cc: u8, fader_value: u8) {
         let _ = self
             .ui_input_tx
@@ -186,12 +211,7 @@ fn spawn_audio_worker(
     std::thread::spawn(move || {
         let mut pending: HashMap<(bool, String), AudioUpdateCommand> = HashMap::new();
 
-        loop {
-            let first_cmd = match rx.recv() {
-                Ok(cmd) => cmd,
-                Err(_) => break,
-            };
-
+        while let Ok(first_cmd) = rx.recv() {
             pending.insert((first_cmd.is_sink, first_cmd.target.clone()), first_cmd);
 
             while let Ok(cmd) = rx.try_recv() {
@@ -329,6 +349,7 @@ struct ControlThread {
     audio_failure_count: Arc<AtomicU64>,
     last_runtime_error: Arc<Mutex<Option<String>>>,
     last_midi_output_reconnect: Instant,
+    console_log: Arc<Mutex<VecDeque<String>>>,
 }
 
 impl ControlThread {
@@ -351,17 +372,26 @@ impl ControlThread {
                 self.midi_reconnect_count.fetch_add(1, Ordering::Relaxed);
                 if self.logging_enabled {
                     info!("MIDI device connected");
+                    push_console(&self.console_log, "MIDI device connected".to_string());
                 }
             }
             MidiMessage::Disconnected => {
                 self.midi_connected.store(false, Ordering::Relaxed);
                 if self.logging_enabled {
                     warn!("MIDI device disconnected — reconnecting...");
+                    push_console(
+                        &self.console_log,
+                        "MIDI device disconnected — reconnecting...".to_string(),
+                    );
                 }
             }
             MidiMessage::ControlChange { cc, value } => {
                 if self.logging_enabled {
                     info!("MIDI CC{} -> value: {}", cc, value);
+                    push_console(
+                        &self.console_log,
+                        format!("MIDI CC{} -> value: {}", cc, value),
+                    );
                 }
 
                 if let Some(&target_cc) = self.mapping.mute_button_mapping.get(&cc) {
@@ -433,7 +463,17 @@ impl ControlThread {
         } else {
             self.mapping.cc_to_app_index.get(&target_cc).copied()
         };
-        let Some(idx) = idx else { return };
+        let Some(idx) = idx else {
+            if self.logging_enabled {
+                let msg = format!(
+                    "Mute button CC{} targets CC{}, which isn't currently mapped to a sink or app",
+                    button_cc, target_cc
+                );
+                warn!("{}", msg);
+                push_console(&self.console_log, msg);
+            }
+            return;
+        };
 
         let mut shared_guard = match self.shared_fader.lock() {
             Ok(shared) => shared,
@@ -470,7 +510,7 @@ impl ControlThread {
                 .last_volume_values
                 .get(&target_cc)
                 .copied()
-                .unwrap_or_else(|| ((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8);
+                .unwrap_or(((previous_volume as f32) * MIDI_TO_PERCENT_FACTOR) as u8);
             (percent, false)
         } else {
             *muted_volume = *value;
@@ -487,7 +527,9 @@ impl ControlThread {
         }
 
         if self.logging_enabled {
-            info!("CC{} {}", target_cc, if new_muted { "muted" } else { "unmuted" });
+            let msg = format!("CC{} {}", target_cc, if new_muted { "muted" } else { "unmuted" });
+            info!("{}", msg);
+            push_console(&self.console_log, msg);
         }
 
         if let Some(target) = target {
@@ -528,7 +570,9 @@ impl ControlThread {
                     );
                 }
                 if self.logging_enabled {
-                    info!("UI Slider CC{}: {}", cc, percent);
+                    let msg = format!("UI Slider CC{}: {}", cc, percent);
+                    info!("{}", msg);
+                    push_console(&self.console_log, msg);
                 }
             }
             UiInputEvent::UpdateMapping(mapping) => {
@@ -605,6 +649,7 @@ pub fn start(
     let shared_fader = Arc::new(Mutex::new(initial_fader_state));
     let midi_connected = Arc::new(AtomicBool::new(false));
     let midi_reconnect_count = Arc::new(AtomicU32::new(0));
+    let console_log = Arc::new(Mutex::new(VecDeque::with_capacity(CONSOLE_LOG_CAPACITY)));
 
     let mut thread = ControlThread {
         mapping,
@@ -621,6 +666,7 @@ pub fn start(
         audio_failure_count: audio_failure_count.clone(),
         last_runtime_error: last_runtime_error.clone(),
         last_midi_output_reconnect: Instant::now(),
+        console_log: console_log.clone(),
     };
 
     std::thread::spawn(move || loop {
@@ -640,6 +686,7 @@ pub fn start(
         midi_connected,
         midi_output_connected,
         midi_reconnect_count,
+        console_log,
         ui_input_tx: unified_tx,
         _midi_listener: Arc::new(midi_listener),
     }

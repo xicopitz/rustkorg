@@ -1,4 +1,5 @@
 use anyhow::{anyhow, Result};
+use log::warn;
 use std::collections::HashMap;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -46,30 +47,27 @@ impl PipeWireController {
         use std::io::{BufRead, BufReader};
         std::thread::spawn(move || loop {
             let child = Command::new("pactl")
-                .args(&["subscribe"])
+                .args(["subscribe"])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
                 .spawn();
 
-            match child {
-                Ok(mut child) => {
-                    if let Some(stdout) = child.stdout.take() {
-                        let reader = BufReader::new(stdout);
-                        for line in reader.lines() {
-                            match line {
-                                Ok(line) => {
-                                    // React to sink-input changes (apps) and sink changes
-                                    if line.contains("sink-input") || line.contains(" sink #") {
-                                        availability_changed.store(true, Ordering::Relaxed);
-                                    }
+            if let Ok(mut child) = child {
+                if let Some(stdout) = child.stdout.take() {
+                    let reader = BufReader::new(stdout);
+                    for line in reader.lines() {
+                        match line {
+                            Ok(line) => {
+                                // React to sink-input changes (apps) and sink changes
+                                if line.contains("sink-input") || line.contains(" sink #") {
+                                    availability_changed.store(true, Ordering::Relaxed);
                                 }
-                                Err(_) => break,
                             }
+                            Err(_) => break,
                         }
                     }
-                    let _ = child.wait();
                 }
-                Err(_) => {}
+                let _ = child.wait();
             }
             // Retry after a short delay if pactl subscribe exits unexpectedly
             std::thread::sleep(Duration::from_secs(5));
@@ -78,11 +76,14 @@ impl PipeWireController {
 
     /// Every active sink-input with the sink it's currently routed to, for the read-only
     /// routing view (Graph tab) — unlike `get_matching_app_inputs`, this isn't filtered to
-    /// a configured app name, it's every stream PipeWire currently knows about.
+    /// a configured app name, it's every stream PipeWire currently knows about. The label
+    /// includes `media.name` (e.g. a browser tab's title) when present, so multiple
+    /// streams from the same app (several Firefox tabs, say) are distinguishable instead
+    /// of all showing up as just "Firefox".
     pub fn list_all_sink_inputs(&self) -> Vec<(u32, String, Option<u32>)> {
         let mut results = Vec::new();
 
-        let Ok(output) = Command::new("pactl").args(&["list", "sink-inputs"]).output() else {
+        let Ok(output) = Command::new("pactl").args(["list", "sink-inputs"]).output() else {
             return results;
         };
         if !output.status.success() {
@@ -93,12 +94,33 @@ impl PipeWireController {
         let mut current_input_index: Option<u32> = None;
         let mut current_sink_index: Option<u32> = None;
         let mut current_app_name: Option<String> = None;
+        let mut current_media_name: Option<String> = None;
+
+        let flush = |idx: Option<u32>,
+                     app_name: Option<String>,
+                     media_name: Option<String>,
+                     sink_index: Option<u32>,
+                     results: &mut Vec<(u32, String, Option<u32>)>| {
+            if let (Some(idx), Some(app_name)) = (idx, app_name) {
+                let label = match media_name {
+                    Some(media_name) if !media_name.is_empty() && media_name != app_name => {
+                        format!("{} — {}", app_name, media_name)
+                    }
+                    _ => app_name,
+                };
+                results.push((idx, label, sink_index));
+            }
+        };
 
         for line in text.lines() {
             if line.starts_with("Sink Input #") {
-                if let (Some(idx), Some(name)) = (current_input_index, current_app_name.take()) {
-                    results.push((idx, name, current_sink_index));
-                }
+                flush(
+                    current_input_index,
+                    current_app_name.take(),
+                    current_media_name.take(),
+                    current_sink_index,
+                    &mut results,
+                );
                 current_input_index = line
                     .strip_prefix("Sink Input #")
                     .and_then(|s| s.split_whitespace().next())
@@ -108,16 +130,18 @@ impl PipeWireController {
             }
 
             let trimmed = line.trim();
-            if current_app_name.is_none() {
-                if let Some((key, _)) = trimmed.split_once('=') {
-                    let key = key.trim().to_lowercase();
-                    if key == "application.name" || key == "application.process.binary" {
-                        if let Some(name) = extract_pipewire_property_value(trimmed) {
-                            if !name.is_empty() {
-                                current_app_name = Some(name);
-                            }
+            if let Some((key, _)) = trimmed.split_once('=') {
+                let key = key.trim().to_lowercase();
+                if current_app_name.is_none()
+                    && (key == "application.name" || key == "application.process.binary")
+                {
+                    if let Some(name) = extract_pipewire_property_value(trimmed) {
+                        if !name.is_empty() {
+                            current_app_name = Some(name);
                         }
                     }
+                } else if current_media_name.is_none() && key == "media.name" {
+                    current_media_name = extract_pipewire_property_value(trimmed);
                 }
             }
             if current_sink_index.is_none() {
@@ -127,9 +151,13 @@ impl PipeWireController {
             }
         }
 
-        if let (Some(idx), Some(name)) = (current_input_index, current_app_name) {
-            results.push((idx, name, current_sink_index));
-        }
+        flush(
+            current_input_index,
+            current_app_name,
+            current_media_name,
+            current_sink_index,
+            &mut results,
+        );
 
         results
     }
@@ -141,7 +169,7 @@ impl PipeWireController {
         let mut results = Vec::new();
 
         if let Ok(output) = Command::new("pactl")
-            .args(&["list", "sink-inputs"])
+            .args(["list", "sink-inputs"])
             .output()
         {
             if output.status.success() {
@@ -172,7 +200,7 @@ impl PipeWireController {
                         continue;
                     }
 
-                    if let Some(_) = current_input_index {
+                    if current_input_index.is_some() {
                         if !matched_app {
                             let line_trimmed = line.trim();
                             let property_key = line_trimmed
@@ -227,7 +255,7 @@ impl PipeWireController {
 
         // Use pactl to set sink volume directly
         let output = Command::new("pactl")
-            .args(&[
+            .args([
                 "set-sink-volume",
                 sink_name,
                 &format!("{}%", volume_percent),
@@ -278,7 +306,7 @@ impl PipeWireController {
     #[inline]
     fn fetch_sink_volume(sink_name: &str) -> Option<u8> {
         let output = Command::new("pactl")
-            .args(&["get-sink-volume", sink_name])
+            .args(["get-sink-volume", sink_name])
             .output()
             .ok()?;
 
@@ -305,7 +333,7 @@ impl PipeWireController {
 
         let matching_inputs = self.get_matching_app_inputs(app_name);
         if matching_inputs.is_empty() {
-            eprintln!(
+            warn!(
                 "App '{}' not found on sink '{}' in sink inputs",
                 app_name, self.default_sink_name
             );
@@ -315,7 +343,7 @@ impl PipeWireController {
         let mut errors = Vec::new();
         for (input_index, _) in &matching_inputs {
             let result = Command::new("pactl")
-                .args(&[
+                .args([
                     "set-sink-input-volume",
                     &input_index.to_string(),
                     &format!("{}%", volume_percent),
@@ -398,7 +426,7 @@ impl PipeWireController {
     /// Lists real sink names currently known to PipeWire/PulseAudio, so Settings can offer
     /// a picker instead of relying on free-text entry that fails silently on a typo.
     pub fn list_sink_names(&self) -> Vec<String> {
-        let output = match Command::new("pactl").args(&["list", "sinks", "short"]).output() {
+        let output = match Command::new("pactl").args(["list", "sinks", "short"]).output() {
             Ok(output) if output.status.success() => output,
             _ => return Vec::new(),
         };
@@ -416,7 +444,7 @@ impl PipeWireController {
     /// looks like `source=master_sink.monitor sink=alsa_output...`), and there's no other
     /// way to discover that relationship from the sink/sink-input listings alone.
     pub fn list_loopback_routes(&self) -> Vec<(String, String)> {
-        let output = match Command::new("pactl").args(&["list", "modules"]).output() {
+        let output = match Command::new("pactl").args(["list", "modules"]).output() {
             Ok(output) if output.status.success() => output,
             _ => return Vec::new(),
         };
@@ -452,7 +480,7 @@ impl PipeWireController {
     /// Sink index + name pairs, for the routing view (Graph tab) where sink-inputs need
     /// to be matched to a sink by index rather than just displaying names.
     pub fn list_sinks_indexed(&self) -> Vec<(u32, String)> {
-        let output = match Command::new("pactl").args(&["list", "sinks", "short"]).output() {
+        let output = match Command::new("pactl").args(["list", "sinks", "short"]).output() {
             Ok(output) if output.status.success() => output,
             _ => return Vec::new(),
         };
@@ -472,7 +500,7 @@ impl PipeWireController {
         let mut apps: Vec<String> = Vec::new();
 
         if let Ok(output) = Command::new("pactl")
-            .args(&["list", "sink-inputs"])
+            .args(["list", "sink-inputs"])
             .output()
         {
             if !output.status.success() {
@@ -489,7 +517,7 @@ impl PipeWireController {
                     if let Some(name) = current_app.take() {
                         if !apps
                             .iter()
-                            .any(|existing| existing.eq_ignore_ascii_case(&name.as_str()))
+                            .any(|existing| existing.eq_ignore_ascii_case(name.as_str()))
                         {
                             apps.push(name);
                         }

@@ -30,6 +30,7 @@ pub struct UiState {
     pub graph_sinks: Vec<(u32, String)>, // (sink index, name) — Graph tab nodes
     pub graph_streams: Vec<(u32, String, Option<u32>)>, // (input index, app name, sink index) — Graph tab nodes
     pub graph_loopback_routes: Vec<(String, String)>, // (software sink name, hardware sink name) — Graph tab
+    pub graph_node_positions: std::collections::HashMap<String, egui::Pos2>, // user-dragged Graph tab node positions, by stable node key
     pub console_output: Vec<(String, chrono::DateTime<chrono::Local>)>,
     pub max_console_lines: usize, // Max number of console messages to keep
     // Tray settings
@@ -160,6 +161,7 @@ impl UiState {
             graph_sinks: Vec::new(),
             graph_streams: Vec::new(),
             graph_loopback_routes: Vec::new(),
+            graph_node_positions: std::collections::HashMap::new(),
             console_output: Vec::new(),
             max_console_lines,
             enable_tray,
@@ -337,29 +339,28 @@ impl UiState {
                     }
 
                     // Graph tab
-                    if self.cfg_show_graph {
-                        if ui
+                    if self.cfg_show_graph
+                        && ui
                             .selectable_label(
                                 self.selected_tab == Tab::Graph,
                                 RichText::new("🔀 Graph").size(14.0),
                             )
                             .clicked()
-                        {
-                            self.selected_tab = Tab::Graph;
-                        }
+                    {
+                        self.selected_tab = Tab::Graph;
                     }
 
                     // Console tab (only show when explicitly enabled and logging is on)
-                    if self.cfg_logging_enabled && self.cfg_show_console {
-                        if ui
+                    if self.cfg_logging_enabled
+                        && self.cfg_show_console
+                        && ui
                             .selectable_label(
                                 self.selected_tab == Tab::Console,
                                 RichText::new("📋 Console").size(14.0),
                             )
                             .clicked()
-                        {
-                            self.selected_tab = Tab::Console;
-                        }
+                    {
+                        self.selected_tab = Tab::Console;
                     }
 
                     // Settings tab

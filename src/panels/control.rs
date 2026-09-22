@@ -490,9 +490,7 @@ fn render_fader_with_mute(
                 // Header with label and mute icon
                 ui.horizontal(|ui| {
                     let mute_icon = if is_muted { "🔇" } else { "🔊" };
-                    let label_color = if !is_available {
-                        theme::TEXT_MUTED
-                    } else if is_muted {
+                    let label_color = if !is_available || is_muted {
                         theme::TEXT_MUTED
                     } else {
                         section_color
@@ -602,7 +600,12 @@ fn render_fader_with_mute(
 
                 ui.add_space(4.0);
 
-                // Visual bar + peak marker
+                // Visual bar + peak marker. Recompute from `fader_value` here rather than
+                // reusing `value`/`percent` from above — those were captured before the
+                // -/slider/+ widgets ran, so reusing them would draw the bar one frame
+                // behind an actual click or drag.
+                let value = *fader_value;
+                let percent = (value as f32 / 127.0 * 100.0) as u8;
                 let bar_width = ui.available_width();
                 let bar_height = 7.0;
                 let filled_width = bar_width * (percent as f32 / 100.0);

@@ -154,12 +154,10 @@ impl Backend {
             return TrayWait::Quit;
         };
         let rx = tray_rx.lock().unwrap();
-        loop {
-            match rx.recv() {
-                Ok(crate::tray::TrayCommand::ShowHide) => return TrayWait::Show,
-                Ok(crate::tray::TrayCommand::Quit) => return TrayWait::Quit,
-                Err(_) => return TrayWait::Quit,
-            }
+        match rx.recv() {
+            Ok(crate::tray::TrayCommand::ShowHide) => TrayWait::Show,
+            Ok(crate::tray::TrayCommand::Quit) => TrayWait::Quit,
+            Err(_) => TrayWait::Quit,
         }
     }
 }
@@ -764,6 +762,12 @@ impl eframe::App for MidiVolumeApp {
             }
         }
 
+        // Pull MIDI/mute activity messages the control thread queued (it logs to
+        // log::info! directly too, but this is what actually shows in the Console tab).
+        for msg in self.control.drain_console_log() {
+            self.ui_state.add_console_message(msg);
+        }
+
         // Check audio availability periodically
         self.check_audio_availability();
 
@@ -835,11 +839,9 @@ impl eframe::App for MidiVolumeApp {
                 self.ui_state.app_fader_labels.get(ui_index).map(|(cc, _)| *cc)
             };
             if let Some(cc) = cc {
+                // Console message for this comes from the control thread (it logs the
+                // actual percent sent, not just the raw 0-127 fader value).
                 self.control.send_slider_changed(is_sink, cc, new_value);
-                if self.logging_enabled {
-                    self.ui_state
-                        .add_console_message(format!("UI Slider CC{}: {}", cc, new_value));
-                }
             }
         }
 

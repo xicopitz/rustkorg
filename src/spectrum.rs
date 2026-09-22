@@ -1,3 +1,4 @@
+use log::warn;
 use rustfft::{num_complex::Complex, Fft, FftPlanner};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -166,7 +167,7 @@ fn run_analyzer(data: Arc<Mutex<SpectrumData>>, stop_flag: Arc<Mutex<bool>>, sou
     ) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Failed to connect to PulseAudio: {:?}", e);
+            warn!("Failed to connect to PulseAudio: {:?}", e);
             if let Ok(mut d) = data.lock() {
                 d.running = false;
             }
@@ -336,7 +337,7 @@ fn calculate_bands_from_ring(
     fft.process(fft_buffer);
 
     // Calculate band magnitudes
-    calculate_bands(&fft_buffer)
+    calculate_bands(fft_buffer)
 }
 
 fn build_hann_window() -> Vec<f32> {
@@ -348,7 +349,7 @@ fn build_hann_window() -> Vec<f32> {
 }
 
 fn decode_f32_le_samples(bytes: &[u8], samples: &mut [f32]) -> bool {
-    let expected_len = samples.len() * std::mem::size_of::<f32>();
+    let expected_len = std::mem::size_of_val(samples);
     if bytes.len() != expected_len {
         return false;
     }
@@ -387,7 +388,7 @@ pub fn frequency_to_note(freq: f32) -> String {
     let octave = (semitones_from_c0 / 12.0).floor() as i32;
     let note_index = (semitones_from_c0 % 12.0) as usize;
 
-    if octave >= 0 && octave < 10 && note_index < notes.len() {
+    if (0..10).contains(&octave) && note_index < notes.len() {
         format!("{}{}", notes[note_index], octave)
     } else {
         format!("{:.0} Hz", freq)

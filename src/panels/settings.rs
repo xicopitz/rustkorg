@@ -747,7 +747,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 ui_state.window_width_str.parse::<u32>()
                                             {
                                                 let old = ui_state.cfg_window_width;
-                                                ui_state.cfg_window_width = val.max(400).min(3000);
+                                                ui_state.cfg_window_width = val.clamp(400, 3000);
                                                 track(
                                                     old,
                                                     &ui_state.cfg_window_width,
@@ -772,7 +772,7 @@ pub fn render_settings_tab(ui_state: &mut UiState, ctx: &Context, _tray_function
                                                 ui_state.window_height_str.parse::<u32>()
                                             {
                                                 let old = ui_state.cfg_window_height;
-                                                ui_state.cfg_window_height = val.max(300).min(2000);
+                                                ui_state.cfg_window_height = val.clamp(300, 2000);
                                                 track(
                                                     old,
                                                     &ui_state.cfg_window_height,

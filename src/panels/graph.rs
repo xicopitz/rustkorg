@@ -1,13 +1,14 @@
 //! Read-only routing view: programs on the left, the software sinks they're playing
 //! through in the middle, and the hardware device(s) those sinks actually reach on the
 //! right — connected by animated lines showing audio flowing left to right. A much
-//! simplified stand-in for something like qpwgraph — no drag-to-reconnect.
+//! simplified stand-in for something like qpwgraph — no drag-to-reconnect, but nodes can
+//! be dragged around to untangle overlapping boxes/lines.
 
 use super::theme;
 use crate::ui::UiState;
 use egui::{
-    pos2, vec2, Align2, CentralPanel, Color32, Context, FontId, Frame, Pos2, Rect, RichText,
-    ScrollArea, Sense, Stroke, StrokeKind,
+    pos2, vec2, Align2, CentralPanel, Color32, Context, FontId, Frame, Id, Pos2, Rect, RichText,
+    ScrollArea, Sense, Stroke, StrokeKind, Ui,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -35,6 +36,12 @@ pub fn render_graph_tab(ui_state: &mut UiState, ctx: &Context) {
                         .color(theme::TEXT_PRIMARY)
                         .strong(),
                 );
+                ui.add_space(8.0);
+                ui.label(
+                    RichText::new("(drag boxes to rearrange)")
+                        .size(11.0)
+                        .color(theme::TEXT_MUTED),
+                );
             });
             ui.add_space(4.0);
 
@@ -50,40 +57,48 @@ pub fn render_graph_tab(ui_state: &mut UiState, ctx: &Context) {
                 return;
             }
 
+            let UiState {
+                graph_streams,
+                graph_sinks,
+                graph_loopback_routes,
+                graph_node_positions,
+                ..
+            } = ui_state;
+
             // A sink is "hardware" if some other sink loops back into it (see
             // `list_loopback_routes`); everything else is a software/virtual sink that
             // apps route to directly.
-            let hardware_names: HashSet<&str> = ui_state
-                .graph_loopback_routes
+            let hardware_names: HashSet<&str> = graph_loopback_routes
                 .iter()
                 .map(|(_, hw)| hw.as_str())
                 .collect();
-            let software_sinks: Vec<&(u32, String)> = ui_state
-                .graph_sinks
+            let software_sinks: Vec<&(u32, String)> = graph_sinks
                 .iter()
                 .filter(|(_, name)| !hardware_names.contains(name.as_str()))
                 .collect();
-            let hardware_sinks: Vec<&(u32, String)> = ui_state
-                .graph_sinks
+            let hardware_sinks: Vec<&(u32, String)> = graph_sinks
                 .iter()
                 .filter(|(_, name)| hardware_names.contains(name.as_str()))
                 .collect();
 
             ScrollArea::both().auto_shrink([false; 2]).show(ui, |ui| {
-                let row_count = ui_state
-                    .graph_streams
+                let row_count = graph_streams
                     .len()
                     .max(software_sinks.len())
                     .max(hardware_sinks.len())
                     .max(1);
-                let canvas_height = row_count as f32 * (NODE_HEIGHT + ROW_GAP) + ROW_GAP;
+                // At least tall/wide enough to lay out every row/column, but never smaller
+                // than the visible viewport — otherwise dragging a box would be clamped
+                // well inside the window instead of filling it, whenever there are only a
+                // few nodes.
+                let canvas_height = (row_count as f32 * (NODE_HEIGHT + ROW_GAP) + ROW_GAP)
+                    .max(ui.available_height());
                 let canvas_width = ui
                     .available_width()
                     .max(SIDE_MARGIN * 2.0 + NODE_WIDTH * 3.0 + COLUMN_GAP * 2.0);
 
                 let (rect, _response) =
                     ui.allocate_exact_size(vec2(canvas_width, canvas_height), Sense::hover());
-                let painter = ui.painter_at(rect);
 
                 let left_x = rect.left() + SIDE_MARGIN;
                 let right_x = rect.right() - SIDE_MARGIN - NODE_WIDTH;
@@ -92,9 +107,18 @@ pub fn render_graph_tab(ui_state: &mut UiState, ctx: &Context) {
                 // Program (left) nodes: remember each one's right-center point, keyed to
                 // the sink index it's currently routed to.
                 let mut stream_anchors: Vec<(Option<u32>, Pos2)> = Vec::new();
-                for (i, (_, app_name, sink_idx)) in ui_state.graph_streams.iter().enumerate() {
-                    let node_rect = row_rect(rect, left_x, i);
-                    draw_node(&painter, node_rect, app_name, theme::ACCENT_ORANGE);
+                for (i, (input_idx, app_name, sink_idx)) in graph_streams.iter().enumerate() {
+                    let key = format!("stream:{}", input_idx);
+                    let default_rect = row_rect(rect, left_x, i);
+                    let node_rect = interactive_node(
+                        ui,
+                        graph_node_positions,
+                        &key,
+                        default_rect,
+                        rect,
+                        app_name,
+                        theme::ACCENT_ORANGE,
+                    );
                     stream_anchors.push((*sink_idx, node_rect.right_center()));
                 }
 
@@ -103,8 +127,17 @@ pub fn render_graph_tab(ui_state: &mut UiState, ctx: &Context) {
                 let mut sink_left_by_index: HashMap<u32, Pos2> = HashMap::new();
                 let mut sink_right_by_name: HashMap<&str, Pos2> = HashMap::new();
                 for (i, (idx, name)) in software_sinks.iter().enumerate() {
-                    let node_rect = row_rect(rect, mid_x, i);
-                    draw_node(&painter, node_rect, name, theme::ACCENT_BLUE);
+                    let key = format!("sink:{}", idx);
+                    let default_rect = row_rect(rect, mid_x, i);
+                    let node_rect = interactive_node(
+                        ui,
+                        graph_node_positions,
+                        &key,
+                        default_rect,
+                        rect,
+                        name,
+                        theme::ACCENT_BLUE,
+                    );
                     sink_left_by_index.insert(*idx, node_rect.left_center());
                     sink_right_by_name.insert(name.as_str(), node_rect.right_center());
                 }
@@ -115,11 +148,22 @@ pub fn render_graph_tab(ui_state: &mut UiState, ctx: &Context) {
                 let mut hw_left_by_index: HashMap<u32, Pos2> = HashMap::new();
                 let mut hw_left_by_name: HashMap<&str, Pos2> = HashMap::new();
                 for (i, (idx, name)) in hardware_sinks.iter().enumerate() {
-                    let node_rect = row_rect(rect, right_x, i);
-                    draw_node(&painter, node_rect, name, theme::ACCENT_GOLD);
+                    let key = format!("sink:{}", idx);
+                    let default_rect = row_rect(rect, right_x, i);
+                    let node_rect = interactive_node(
+                        ui,
+                        graph_node_positions,
+                        &key,
+                        default_rect,
+                        rect,
+                        name,
+                        theme::ACCENT_GOLD,
+                    );
                     hw_left_by_index.insert(*idx, node_rect.left_center());
                     hw_left_by_name.insert(name.as_str(), node_rect.left_center());
                 }
+
+                let painter = ui.painter();
 
                 // Programs -> whichever sink (software or hardware) they're routed to.
                 for (sink_idx, from) in stream_anchors {
@@ -128,22 +172,63 @@ pub fn render_graph_tab(ui_state: &mut UiState, ctx: &Context) {
                         .get(&sink_idx)
                         .or_else(|| hw_left_by_index.get(&sink_idx));
                     if let Some(&to) = to {
-                        draw_flow_line(&painter, from, to, time, theme::ACCENT_GREEN);
+                        draw_flow_line(painter, from, to, time, theme::ACCENT_GREEN);
                     }
                 }
 
                 // Software sinks -> the hardware they loop back into.
-                for (software_name, hardware_name) in &ui_state.graph_loopback_routes {
+                for (software_name, hardware_name) in graph_loopback_routes.iter() {
                     let Some(&from) = sink_right_by_name.get(software_name.as_str()) else {
                         continue;
                     };
                     let Some(&to) = hw_left_by_name.get(hardware_name.as_str()) else {
                         continue;
                     };
-                    draw_flow_line(&painter, from, to, time, theme::ACCENT_GOLD);
+                    draw_flow_line(painter, from, to, time, theme::ACCENT_GOLD);
                 }
             });
         });
+}
+
+/// Renders one draggable node: looks up any saved custom position for `key` (falling back
+/// to `default_rect`'s position), lets the user drag it around (clamped to stay inside
+/// `canvas`), remembers the new position if dragged, and draws it. Returns the rect it was
+/// actually drawn at, for callers to anchor connection lines to.
+#[allow(clippy::too_many_arguments)]
+fn interactive_node(
+    ui: &mut Ui,
+    positions: &mut HashMap<String, Pos2>,
+    key: &str,
+    default_rect: Rect,
+    canvas: Rect,
+    label: &str,
+    accent: Color32,
+) -> Rect {
+    let top_left = positions.get(key).copied().unwrap_or(default_rect.min);
+    let mut node_rect = Rect::from_min_size(top_left, default_rect.size());
+
+    let id = Id::new(("graph_node", key));
+    let response = ui.interact(node_rect, id, Sense::click_and_drag());
+    if response.dragged() {
+        let mut new_min = node_rect.min + response.drag_delta();
+        new_min.x = new_min
+            .x
+            .clamp(canvas.left(), canvas.right() - node_rect.width());
+        new_min.y = new_min
+            .y
+            .clamp(canvas.top(), canvas.bottom() - node_rect.height());
+        node_rect = Rect::from_min_size(new_min, node_rect.size());
+        positions.insert(key.to_string(), new_min);
+    }
+
+    if response.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+    } else if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+    }
+
+    draw_node(ui.painter(), node_rect, label, accent);
+    node_rect
 }
 
 /// Draws a connection as a dim base line plus a marching pattern of bright dashes that
